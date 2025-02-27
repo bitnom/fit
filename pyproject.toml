@@ -1,7 +1,7 @@
 [project]
 name = "fit"
 version = "0.1.0"
-description = "Fossil Import Tool - Import and manage Git repositories in a Fossil repository"
+description = "Tool for managing Git repositories in a Fossil monorepo"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
