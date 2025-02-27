@@ -4,9 +4,11 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 import logging
+import shutil
 
 # Set up logging for user feedback
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -22,36 +24,60 @@ MARKS_DIR = '.marks'
 Path(GIT_CLONES_DIR).mkdir(exist_ok=True)
 Path(MARKS_DIR).mkdir(exist_ok=True)
 
+# Check dependencies
+def check_dependencies():
+    """Check if all required dependencies are installed."""
+    try:
+        # Check git
+        subprocess.run(['git', '--version'], check=True, stdout=subprocess.PIPE)
+        
+        # Check git-filter-repo
+        try:
+            subprocess.run(['git', 'filter-repo', '--version'], check=True, stdout=subprocess.PIPE)
+        except subprocess.CalledProcessError:
+            logger.error("git-filter-repo is not installed. Install it with: pip install git-filter-repo")
+            return False
+        
+        # Check fossil
+        subprocess.run(['fossil', 'version'], check=True, stdout=subprocess.PIPE)
+        
+        return True
+    except subprocess.CalledProcessError:
+        logger.error("Missing required dependencies. Please ensure git and fossil are installed.")
+        return False
+    except FileNotFoundError as e:
+        logger.error(f"Missing required dependency: {e}")
+        return False
+
+# Context manager for changing directory
+@contextmanager
+def cd(path):
+    """Context manager to change directory and return to original directory."""
+    original_dir = os.getcwd()
+    try:
+        os.chdir(path)
+        yield
+    finally:
+        os.chdir(original_dir)
+
 # Configuration handling
 def load_config():
     """Load the configuration file, returning an empty dict if it doesn't exist."""
-    if Path(CONFIG_FILE).exists():
-        with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+    if not Path(CONFIG_FILE).exists():
+        return {}
+    with open(CONFIG_FILE, 'r') as f:
+        return json.load(f)
 
 def save_config(config):
     """Save the configuration to the config file."""
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=4)
 
-# Context manager for changing directories
-@contextmanager
-def cd(path):
-    """Temporarily change the current working directory, restoring it afterward."""
-    old_cwd = os.getcwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(old_cwd)
-
-# Initialize Fossil repository
 def init_fossil_repo():
-    """Initialize the Fossil repository and configuration file if they don't exist."""
+    """Initialize the Fossil repository and configuration file."""
     try:
         if not Path(FOSSIL_REPO).exists():
-            logger.info(f"Initializing Fossil repository at {FOSSIL_REPO}...")
+            logger.info(f"Creating Fossil repository {FOSSIL_REPO}...")
             subprocess.run(['fossil', 'init', FOSSIL_REPO], check=True)
         if not Path(CONFIG_FILE).exists():
             logger.info(f"Creating configuration file {CONFIG_FILE}...")
@@ -61,9 +87,28 @@ def init_fossil_repo():
         logger.error(f"Error during initialization: {e}")
         raise
 
+# Validate inputs
+def validate_git_url(url):
+    """Validate that the input looks like a git repository URL."""
+    # Basic validation - could be enhanced for more specific rules
+    if not url or not (url.startswith('http') or url.startswith('git') or url.startswith('ssh')):
+        logger.error(f"Invalid Git URL format: {url}")
+        return False
+    return True
+
+def validate_subdir_name(name):
+    """Validate that the subdirectory name is valid."""
+    if not name or '/' in name or name.startswith('.'):
+        logger.error(f"Invalid subdirectory name: {name}. Must not contain '/' or start with '.'")
+        return False
+    return True
+
 # Import a Git repository
 def import_git_repo(git_repo_url, subdir_name):
     """Import a Git repository into the Fossil repository under a subdirectory."""
+    if not validate_git_url(git_repo_url) or not validate_subdir_name(subdir_name):
+        raise ValueError("Invalid input parameters")
+    
     config = load_config()
     if subdir_name in config:
         logger.error(f"Subdirectory '{subdir_name}' is already imported.")
@@ -172,10 +217,30 @@ def update_git_repo(subdir_name):
         logger.error(f"Unexpected error: {e}")
         raise
 
+# List imported repositories
+def list_repos():
+    """List all imported repositories and their details."""
+    config = load_config()
+    if not config:
+        logger.info("No repositories have been imported.")
+        return
+    
+    logger.info("Imported repositories:")
+    for subdir, details in config.items():
+        logger.info(f"- {subdir}: {details['git_repo_url']}")
+        if logger.level == logging.DEBUG:  # More details when in debug mode
+            logger.debug(f"  Clone path: {details['git_clone_path']}")
+            logger.debug(f"  Git marks: {details['git_marks_file']}")
+            logger.debug(f"  Fossil marks: {details['fossil_marks_file']}")
+
 # Main function with command-line interface
 def main():
     """Parse command-line arguments and execute the appropriate command."""
     parser = argparse.ArgumentParser(description='Fossil Import Tool (fit.py) - Manage Git repositories in a Fossil repository.')
+    
+    # Add verbose flag
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
+    
     subparsers = parser.add_subparsers(dest='command', required=True, help='Available commands')
 
     # Init command
@@ -190,7 +255,15 @@ def main():
     update_parser = subparsers.add_parser('update', help='Update the Fossil repository with new changes from a Git repository')
     update_parser.add_argument('subdir_name', help='Subdirectory name of the repository to update')
 
+    # List command
+    subparsers.add_parser('list', help='List all imported repositories')
+
     args = parser.parse_args()
+
+    # Set debug level if verbose flag is enabled
+    if args.verbose:
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Verbose mode enabled")
 
     try:
         if args.command == 'init':
@@ -199,9 +272,21 @@ def main():
             import_git_repo(args.git_repo_url, args.subdir_name)
         elif args.command == 'update':
             update_git_repo(args.subdir_name)
-    except (ValueError, subprocess.CalledProcessError, Exception) as e:
+        elif args.command == 'list':
+            list_repos()
+    except (ValueError, subprocess.CalledProcessError) as e:
         logger.error(f"Command failed: {e}")
+        exit(1)
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        if args.verbose:
+            logger.exception("Detailed error information:")
         exit(1)
 
 if __name__ == '__main__':
+    if not check_dependencies():
+        logger.error("Missing required dependencies. Please install them before continuing.")
+        logger.error("Make sure git, git-filter-repo, and fossil are installed.")
+        logger.error("You can install git-filter-repo with: uv pip install git-filter-repo")
+        exit(1)
     main()
