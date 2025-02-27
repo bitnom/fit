@@ -86,12 +86,37 @@ def save_config(config, config_file=CONFIG_FILE):
     with open(config_file, 'w') as f:
         json.dump(config, f, indent=4)
 
+def is_fossil_repo_open():
+    """Check if we are already in a Fossil checkout."""
+    try:
+        # Run `fossil status` which only succeeds if in a checkout
+        result = subprocess.run(['fossil', 'status'], 
+                               stdout=subprocess.PIPE, 
+                               stderr=subprocess.PIPE,
+                               check=False)
+        return result.returncode == 0
+    except:
+        return False
+
 def init_fossil_repo(fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE):
     """Initialize the Fossil repository and configuration file."""
     try:
+        # Check if repository exists
         if not Path(fossil_repo).exists():
             logger.info(f"Creating Fossil repository {fossil_repo}...")
             subprocess.run(['fossil', 'init', fossil_repo], check=True)
+            
+            # Open the repository after initialization
+            if not is_fossil_repo_open():
+                logger.info(f"Opening Fossil repository {fossil_repo}...")
+                subprocess.run(['fossil', 'open', fossil_repo], check=True)
+        elif not is_fossil_repo_open():
+            # If repo exists but is not open, open it
+            logger.info(f"Opening existing Fossil repository {fossil_repo}...")
+            subprocess.run(['fossil', 'open', fossil_repo], check=True)
+        else:
+            logger.info(f"Fossil repository is already open.")
+            
         if not Path(config_file).exists():
             logger.info(f"Creating configuration file {config_file}...")
             save_config({}, config_file)
@@ -153,6 +178,13 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
     
     git_clone_path.mkdir(exist_ok=True, parents=True)
     
+    # Ensure fossil repository is open
+    if not is_fossil_repo_open():
+        logger.info(f"Opening Fossil repository {fossil_repo}...")
+        subprocess.run(['fossil', 'open', fossil_repo], check=True)
+    else:
+        logger.info(f"Using already open Fossil repository.")
+    
     try:
         # Clone the Git repository
         logger.info(f"Cloning Git repository from {git_repo_url}...")
@@ -163,33 +195,20 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
             logger.info(f"Moving files to subdirectory '{subdir_name}'...")
             subprocess.run(['git-filter-repo', '--to-subdirectory-filter', subdir_name], check=True)
             
-            # Step 2: Rename branches with a prefix
-            # Create a temporary Python script to rename refs
-            refs_script_path = Path(f"rename_refs_{subdir_name}.py")
-            with open(refs_script_path, "w") as f:
-                f.write(f'''
-import sys
-
-def rewrite_ref(ref):
-    if ref.startswith(b'refs/heads/'):
-        return b'refs/heads/{subdir_name}/' + ref[len(b'refs/heads/'):]
-    return ref
-
-if __name__ == '__main__':
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        old_ref = line.encode('utf-8')
-        new_ref = rewrite_ref(old_ref)
-        print(f"{{old_ref.decode('utf-8')}} {{new_ref.decode('utf-8')}}")
-''')
-            
+            # Step 2: Use a direct approach with standard git commands for branch renaming
             logger.info(f"Renaming branches with prefix '{subdir_name}/'...")
-            subprocess.run(['git-filter-repo', '--refs-transform', f'python3 {refs_script_path}'], check=True)
+            # Get list of branches
+            result = subprocess.run(['git', 'branch'], check=True, capture_output=True, text=True)
+            branches = [b.strip() for b in result.stdout.split('\n') if b.strip()]
             
-            # Clean up the temporary script
-            refs_script_path.unlink()
+            # Remove the asterisk from the current branch
+            branches = [b[2:] if b.startswith('* ') else b for b in branches]
+            
+            # Rename each branch
+            for branch in branches:
+                if branch and not branch.startswith(f"{subdir_name}/"):
+                    logger.info(f"Renaming branch '{branch}' to '{subdir_name}/{branch}'")
+                    subprocess.run(['git', 'branch', '-m', branch, f"{subdir_name}/{branch}"], check=True)
             
             # Define marks file paths
             git_marks_file = original_cwd / marks_dir / f"{subdir_name}_git.marks"
@@ -239,6 +258,13 @@ def update_git_repo(subdir_name, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
     git_marks_file = Path(config[subdir_name]['git_marks_file'])
     fossil_marks_file = Path(config[subdir_name]['fossil_marks_file'])
     
+    # Ensure fossil repository is open
+    if not is_fossil_repo_open():
+        logger.info(f"Opening Fossil repository {fossil_repo}...")
+        subprocess.run(['fossil', 'open', fossil_repo], check=True)
+    else:
+        logger.info(f"Using already open Fossil repository.")
+    
     try:
         with cd(git_clone_path):
             # Pull latest changes
@@ -249,33 +275,20 @@ def update_git_repo(subdir_name, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
             logger.info(f"Moving files to subdirectory '{subdir_name}'...")
             subprocess.run(['git-filter-repo', '--to-subdirectory-filter', subdir_name, '--force'], check=True)
             
-            # Step 2: Rename branches with a prefix
-            # Create a temporary Python script to rename refs
-            refs_script_path = Path(f"rename_refs_{subdir_name}.py")
-            with open(refs_script_path, "w") as f:
-                f.write(f'''
-import sys
-
-def rewrite_ref(ref):
-    if ref.startswith(b'refs/heads/'):
-        return b'refs/heads/{subdir_name}/' + ref[len(b'refs/heads/'):]
-    return ref
-
-if __name__ == '__main__':
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        old_ref = line.encode('utf-8')
-        new_ref = rewrite_ref(old_ref)
-        print(f"{{old_ref.decode('utf-8')}} {{new_ref.decode('utf-8')}}")
-''')
-            
+            # Step 2: Use a direct approach with standard git commands for branch renaming
             logger.info(f"Renaming branches with prefix '{subdir_name}/'...")
-            subprocess.run(['git-filter-repo', '--refs-transform', f'python3 {refs_script_path}', '--force'], check=True)
+            # Get list of branches
+            result = subprocess.run(['git', 'branch'], check=True, capture_output=True, text=True)
+            branches = [b.strip() for b in result.stdout.split('\n') if b.strip()]
             
-            # Clean up the temporary script
-            refs_script_path.unlink()
+            # Remove the asterisk from the current branch
+            branches = [b[2:] if b.startswith('* ') else b for b in branches]
+            
+            # Rename each branch
+            for branch in branches:
+                if branch and not branch.startswith(f"{subdir_name}/"):
+                    logger.info(f"Renaming branch '{branch}' to '{subdir_name}/{branch}'")
+                    subprocess.run(['git', 'branch', '-m', branch, f"{subdir_name}/{branch}"], check=True)
             
             # Export and import new changes
             logger.info("Exporting new changes and updating Fossil repository...")
