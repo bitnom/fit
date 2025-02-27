@@ -3,7 +3,7 @@ import pytest
 import tempfile
 import json
 import shutil
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock, mock_open, call
 import sys
 from pathlib import Path
 
@@ -96,33 +96,119 @@ def test_validate_subdir_name():
     assert fit.validate_subdir_name("invalid/path") is False
     assert fit.validate_subdir_name(".invalid") is False
 
+# Test the new ensure_directories function
+def test_ensure_directories(temp_dir):
+    """Test that directories are created as expected."""
+    test_git_dir = "test_git_dir"
+    test_marks_dir = "test_marks_dir"
+    
+    # Ensure the directories don't exist first
+    assert not os.path.exists(test_git_dir)
+    assert not os.path.exists(test_marks_dir)
+    
+    fit.ensure_directories(test_git_dir, test_marks_dir)
+    
+    # Check that they were created
+    assert os.path.exists(test_git_dir)
+    assert os.path.exists(test_marks_dir)
+
+# Update test_init_fossil_repo to include new parameters
 @patch('subprocess.run')
 def test_init_fossil_repo(mock_run, temp_dir):
-    """Test initialization of fossil repository."""
-    fit.init_fossil_repo()
-    mock_run.assert_called_once_with(['fossil', 'init', fit.FOSSIL_REPO], check=True)
-    assert os.path.exists(fit.CONFIG_FILE)
+    """Test initialization of fossil repository with custom values."""
+    custom_fossil = "custom.fossil"
+    custom_config = "custom.json"
+    
+    fit.init_fossil_repo(custom_fossil, custom_config)
+    
+    mock_run.assert_called_once_with(['fossil', 'init', custom_fossil], check=True)
+    assert os.path.exists(custom_config)
 
+# Update test_import_command to match new parameter signature
 @patch('fit.fit.import_git_repo')
 def test_import_command(mock_import, temp_dir):
-    """Test the import command in main function."""
+    """Test the import command in main function with default values."""
     with patch('sys.argv', ['fit.py', 'import', 'https://github.com/user/repo.git', 'test_repo']):
         fit.main()
-    mock_import.assert_called_once_with('https://github.com/user/repo.git', 'test_repo')
+    mock_import.assert_called_once_with(
+        'https://github.com/user/repo.git', 
+        'test_repo',
+        fit.FOSSIL_REPO, 
+        fit.CONFIG_FILE,
+        fit.GIT_CLONES_DIR, 
+        fit.MARKS_DIR
+    )
 
+# Add test for import command with custom paths
+@patch('fit.fit.import_git_repo')
+def test_import_command_with_custom_paths(mock_import, temp_dir):
+    """Test the import command with custom path arguments."""
+    args = [
+        'fit.py',
+        '--fossil-repo', 'custom.fossil',
+        '--config', 'custom.json',
+        '--git-clones-dir', 'custom_git',
+        '--marks-dir', 'custom_marks',
+        'import', 'https://github.com/user/repo.git', 'test_repo'
+    ]
+    with patch('sys.argv', args):
+        fit.main()
+    
+    mock_import.assert_called_once_with(
+        'https://github.com/user/repo.git', 
+        'test_repo', 
+        'custom.fossil',
+        'custom.json',
+        'custom_git',
+        'custom_marks'
+    )
+
+# Update test_update_command to match new parameter signature
 @patch('fit.fit.update_git_repo')
 def test_update_command(mock_update, temp_dir):
     """Test the update command in main function."""
     with patch('sys.argv', ['fit.py', 'update', 'test_repo']):
         fit.main()
-    mock_update.assert_called_once_with('test_repo')
+    mock_update.assert_called_once_with(
+        'test_repo',
+        fit.FOSSIL_REPO,
+        fit.CONFIG_FILE
+    )
 
+# Add test for update command with custom paths
+@patch('fit.fit.update_git_repo')
+def test_update_command_with_custom_paths(mock_update, temp_dir):
+    """Test the update command with custom path arguments."""
+    args = [
+        'fit.py',
+        '--fossil-repo', 'custom.fossil',
+        '--config', 'custom.json',
+        'update', 'test_repo'
+    ]
+    with patch('sys.argv', args):
+        fit.main()
+    
+    mock_update.assert_called_once_with(
+        'test_repo', 
+        'custom.fossil',
+        'custom.json'
+    )
+
+# Update list command test
 @patch('fit.fit.list_repos')
 def test_list_command(mock_list, temp_dir):
     """Test the list command in main function."""
     with patch('sys.argv', ['fit.py', 'list']):
         fit.main()
-    mock_list.assert_called_once()
+    mock_list.assert_called_once_with(fit.CONFIG_FILE)
+
+# Add test for list command with custom config
+@patch('fit.fit.list_repos')
+def test_list_command_with_custom_config(mock_list, temp_dir):
+    """Test the list command with custom config."""
+    with patch('sys.argv', ['fit.py', '--config', 'custom.json', 'list']):
+        fit.main()
+    mock_list.assert_called_once_with('custom.json')
 
 @patch('subprocess.run')
 def test_check_dependencies(mock_run, temp_dir):
