@@ -237,6 +237,26 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
             'fossil_marks_file': str(fossil_marks_file)
         }
         save_config(config, config_file)
+        
+        # Check what branches are available in the Fossil repository
+        logger.info("Checking available branches...")
+        result = subprocess.run(['fossil', 'branch', 'list'], check=True, capture_output=True, text=True)
+        
+        # Look for a branch with the expected prefix
+        main_branch = None
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line.startswith(f"{subdir_name}/"):
+                main_branch = line
+                break
+        
+        # Update to the first branch found with the proper prefix
+        if main_branch:
+            logger.info(f"Updating checkout to branch '{main_branch}'...")
+            subprocess.run(['fossil', 'update', main_branch], check=True)
+        else:
+            logger.warning(f"No branches starting with '{subdir_name}/' were found. Your checkout was not updated.")
+        
         logger.info(f"Successfully imported '{git_repo_url}' into subdirectory '{subdir_name}'.")
     except subprocess.CalledProcessError as e:
         logger.error(f"Error during import: {e}")
