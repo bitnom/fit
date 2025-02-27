@@ -145,7 +145,13 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
     
     original_cwd = Path.cwd()
     git_clone_path = original_cwd / git_clones_dir / subdir_name
-    git_clone_path.mkdir(exist_ok=True)
+    
+    # Check if the clone directory exists
+    if git_clone_path.exists():
+        logger.warning(f"Clone directory '{git_clone_path}' already exists. Removing it...")
+        shutil.rmtree(git_clone_path)
+    
+    git_clone_path.mkdir(exist_ok=True, parents=True)
     
     try:
         # Clone the Git repository
