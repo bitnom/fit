@@ -9,6 +9,14 @@ from contextlib import contextmanager
 from pathlib import Path
 import logging
 import shutil
+import importlib.metadata
+
+# Get version using importlib.metadata
+try:
+    __version__ = importlib.metadata.version('fitrepo')
+except importlib.metadata.PackageNotFoundError:
+    # Package is not installed, use a default version
+    __version__ = "0.1.3.dev"
 
 # Set up logging for user feedback
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -243,6 +251,9 @@ def list_repos(config_file=CONFIG_FILE):
 def main():
     """Parse command-line arguments and execute the appropriate command."""
     parser = argparse.ArgumentParser(description='Fossil Import Tool (fitrepo.py) - Manage Git repositories in a Fossil repository.')
+    
+    # Add version argument
+    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     
     # Global options
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
