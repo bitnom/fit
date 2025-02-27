@@ -16,7 +16,7 @@ logger = logging.getLogger()
 
 # Default constants
 FOSSIL_REPO = 'monorepo.fossil'
-CONFIG_FILE = 'fit.json'
+CONFIG_FILE = 'fitrepo.json'
 GIT_CLONES_DIR = '.git_clones'
 MARKS_DIR = '.marks'
 
@@ -239,7 +239,7 @@ def list_repos(config_file=CONFIG_FILE):
 # Main function with command-line interface
 def main():
     """Parse command-line arguments and execute the appropriate command."""
-    parser = argparse.ArgumentParser(description='Fossil Import Tool (fit.py) - Manage Git repositories in a Fossil repository.')
+    parser = argparse.ArgumentParser(description='Fossil Import Tool (fitrepo.py) - Manage Git repositories in a Fossil repository.')
     
     # Global options
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')

@@ -86,7 +86,7 @@ wheels = [
 ]
 
 [[package]]
-name = "fit"
+name = "fitrepo"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
@@ -101,6 +101,11 @@ dev = [
     { name = "pytest-cov" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'" },
@@ -109,6 +114,9 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.3.4" }]
 
 [[package]]
 name = "git-filter-repo"

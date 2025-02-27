@@ -1,5 +1,5 @@
 [project]
-name = "fit"
+name = "fitrepo"
 version = "0.1.0"
 description = "Tool for managing Git repositories in a Fossil monorepo"
 readme = "README.md"
@@ -13,12 +13,13 @@ dependencies = [
 ]
 
 [project.scripts]
-fit = "fit:main"
-fossil-import-tool = "fit:main"  # Additional command name for better discoverability
+fit = "fitrepo:main"
+fitrepo = "fitrepo:main"
+fossil-import-tool = "fitrepo:main"
 
 [project.urls]
-"Homepage" = "https://github.com/bitnom/fit"
-"Bug Tracker" = "https://github.com/bitnom/fit/issues"
+"Homepage" = "https://github.com/bitnom/fitrepo"
+"Bug Tracker" = "https://github.com/bitnom/fitrepo/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
@@ -41,3 +42,8 @@ addopts = "-v"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.4",
+]

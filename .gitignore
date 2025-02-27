@@ -31,7 +31,7 @@ monorepo.fossil
 .marks/
 
 # Configuration
-fit.json
+fitrepo.json
 
 # Testing
 .pytest_cache/

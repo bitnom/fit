@@ -10,7 +10,7 @@ from pathlib import Path
 # Add the src directory to the Python path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from fit import fit
+from fitrepo import fitrepo
 
 @pytest.fixture
 def temp_dir():
@@ -24,8 +24,8 @@ def temp_dir():
         Path('temp_marks').mkdir(exist_ok=True)
         
         # Patch the constants to use our temporary directories
-        with patch.object(fit, 'GIT_CLONES_DIR', 'temp_git_clones'), \
-             patch.object(fit, 'MARKS_DIR', 'temp_marks'):
+        with patch.object(fitrepo, 'GIT_CLONES_DIR', 'temp_git_clones'), \
+             patch.object(fitrepo, 'MARKS_DIR', 'temp_marks'):
             
             yield tmpdirname
             
@@ -59,42 +59,42 @@ def prevent_external_calls():
 
 def test_load_config_nonexistent(temp_dir):
     """Test loading a config that doesn't exist."""
-    assert fit.load_config() == {}
+    assert fitrepo.load_config() == {}
 
 def test_load_config_exists(temp_dir, mock_config):
     """Test loading a config that exists."""
-    with open(fit.CONFIG_FILE, 'w') as f:
+    with open(fitrepo.CONFIG_FILE, 'w') as f:
         json.dump(mock_config, f)
     
-    assert fit.load_config() == mock_config
+    assert fitrepo.load_config() == mock_config
 
 def test_save_config(temp_dir):
     """Test saving configuration."""
     test_config = {"test": "data"}
-    fit.save_config(test_config)
+    fitrepo.save_config(test_config)
     
-    with open(fit.CONFIG_FILE, 'r') as f:
+    with open(fitrepo.CONFIG_FILE, 'r') as f:
         saved_config = json.load(f)
     
     assert saved_config == test_config
 
 def test_validate_git_url():
     """Test git URL validation."""
-    assert fit.validate_git_url("https://github.com/user/repo.git") is True
-    assert fit.validate_git_url("git@github.com:user/repo.git") is True
-    assert fit.validate_git_url("ssh://git@github.com/user/repo.git") is True
-    assert fit.validate_git_url("") is False
-    assert fit.validate_git_url("invalid-url") is False
+    assert fitrepo.validate_git_url("https://github.com/user/repo.git") is True
+    assert fitrepo.validate_git_url("git@github.com:user/repo.git") is True
+    assert fitrepo.validate_git_url("ssh://git@github.com/user/repo.git") is True
+    assert fitrepo.validate_git_url("") is False
+    assert fitrepo.validate_git_url("invalid-url") is False
 
 def test_validate_subdir_name():
     """Test subdirectory name validation."""
-    assert fit.validate_subdir_name("valid_name") is True
-    assert fit.validate_subdir_name("valid-name") is True
-    assert fit.validate_subdir_name("valid.name") is True
-    assert fit.validate_subdir_name("") is False
-    assert fit.validate_subdir_name("/invalid") is False
-    assert fit.validate_subdir_name("invalid/path") is False
-    assert fit.validate_subdir_name(".invalid") is False
+    assert fitrepo.validate_subdir_name("valid_name") is True
+    assert fitrepo.validate_subdir_name("valid-name") is True
+    assert fitrepo.validate_subdir_name("valid.name") is True
+    assert fitrepo.validate_subdir_name("") is False
+    assert fitrepo.validate_subdir_name("/invalid") is False
+    assert fitrepo.validate_subdir_name("invalid/path") is False
+    assert fitrepo.validate_subdir_name(".invalid") is False
 
 # Test the new ensure_directories function
 def test_ensure_directories(temp_dir):
@@ -106,7 +106,7 @@ def test_ensure_directories(temp_dir):
     assert not os.path.exists(test_git_dir)
     assert not os.path.exists(test_marks_dir)
     
-    fit.ensure_directories(test_git_dir, test_marks_dir)
+    fitrepo.ensure_directories(test_git_dir, test_marks_dir)
     
     # Check that they were created
     assert os.path.exists(test_git_dir)
@@ -119,32 +119,32 @@ def test_init_fossil_repo(mock_run, temp_dir):
     custom_fossil = "custom.fossil"
     custom_config = "custom.json"
     
-    fit.init_fossil_repo(custom_fossil, custom_config)
+    fitrepo.init_fossil_repo(custom_fossil, custom_config)
     
     mock_run.assert_called_once_with(['fossil', 'init', custom_fossil], check=True)
     assert os.path.exists(custom_config)
 
 # Update test_import_command to match new parameter signature
-@patch('fit.fit.import_git_repo')
+@patch('fitrepo.fitrepo.import_git_repo')
 def test_import_command(mock_import, temp_dir):
     """Test the import command in main function with default values."""
-    with patch('sys.argv', ['fit.py', 'import', 'https://github.com/user/repo.git', 'test_repo']):
-        fit.main()
+    with patch('sys.argv', ['fitrepo.py', 'import', 'https://github.com/user/repo.git', 'test_repo']):
+        fitrepo.main()
     mock_import.assert_called_once_with(
         'https://github.com/user/repo.git', 
         'test_repo',
-        fit.FOSSIL_REPO, 
-        fit.CONFIG_FILE,
-        fit.GIT_CLONES_DIR, 
-        fit.MARKS_DIR
+        fitrepo.FOSSIL_REPO, 
+        fitrepo.CONFIG_FILE,
+        fitrepo.GIT_CLONES_DIR, 
+        fitrepo.MARKS_DIR
     )
 
 # Add test for import command with custom paths
-@patch('fit.fit.import_git_repo')
+@patch('fitrepo.fitrepo.import_git_repo')
 def test_import_command_with_custom_paths(mock_import, temp_dir):
     """Test the import command with custom path arguments."""
     args = [
-        'fit.py',
+        'fitrepo.py',
         '--fossil-repo', 'custom.fossil',
         '--config', 'custom.json',
         '--git-clones-dir', 'custom_git',
@@ -152,7 +152,7 @@ def test_import_command_with_custom_paths(mock_import, temp_dir):
         'import', 'https://github.com/user/repo.git', 'test_repo'
     ]
     with patch('sys.argv', args):
-        fit.main()
+        fitrepo.main()
     
     mock_import.assert_called_once_with(
         'https://github.com/user/repo.git', 
@@ -164,29 +164,29 @@ def test_import_command_with_custom_paths(mock_import, temp_dir):
     )
 
 # Update test_update_command to match new parameter signature
-@patch('fit.fit.update_git_repo')
+@patch('fitrepo.fitrepo.update_git_repo')
 def test_update_command(mock_update, temp_dir):
     """Test the update command in main function."""
-    with patch('sys.argv', ['fit.py', 'update', 'test_repo']):
-        fit.main()
+    with patch('sys.argv', ['fitrepo.py', 'update', 'test_repo']):
+        fitrepo.main()
     mock_update.assert_called_once_with(
         'test_repo',
-        fit.FOSSIL_REPO,
-        fit.CONFIG_FILE
+        fitrepo.FOSSIL_REPO,
+        fitrepo.CONFIG_FILE
     )
 
 # Add test for update command with custom paths
-@patch('fit.fit.update_git_repo')
+@patch('fitrepo.fitrepo.update_git_repo')
 def test_update_command_with_custom_paths(mock_update, temp_dir):
     """Test the update command with custom path arguments."""
     args = [
-        'fit.py',
+        'fitrepo.py',
         '--fossil-repo', 'custom.fossil',
         '--config', 'custom.json',
         'update', 'test_repo'
     ]
     with patch('sys.argv', args):
-        fit.main()
+        fitrepo.main()
     
     mock_update.assert_called_once_with(
         'test_repo', 
@@ -195,29 +195,29 @@ def test_update_command_with_custom_paths(mock_update, temp_dir):
     )
 
 # Update list command test
-@patch('fit.fit.list_repos')
+@patch('fitrepo.fitrepo.list_repos')
 def test_list_command(mock_list, temp_dir):
     """Test the list command in main function."""
-    with patch('sys.argv', ['fit.py', 'list']):
-        fit.main()
-    mock_list.assert_called_once_with(fit.CONFIG_FILE)
+    with patch('sys.argv', ['fitrepo.py', 'list']):
+        fitrepo.main()
+    mock_list.assert_called_once_with(fitrepo.CONFIG_FILE)
 
 # Add test for list command with custom config
-@patch('fit.fit.list_repos')
+@patch('fitrepo.fitrepo.list_repos')
 def test_list_command_with_custom_config(mock_list, temp_dir):
     """Test the list command with custom config."""
-    with patch('sys.argv', ['fit.py', '--config', 'custom.json', 'list']):
-        fit.main()
+    with patch('sys.argv', ['fitrepo.py', '--config', 'custom.json', 'list']):
+        fitrepo.main()
     mock_list.assert_called_once_with('custom.json')
 
 @patch('subprocess.run')
 def test_check_dependencies(mock_run, temp_dir):
     """Test dependency checking."""
     mock_run.return_value = MagicMock(returncode=0)
-    assert fit.check_dependencies() is True
+    assert fitrepo.check_dependencies() is True
 
     mock_run.side_effect = FileNotFoundError("Command not found")
-    assert fit.check_dependencies() is False
+    assert fitrepo.check_dependencies() is False
 
 # Cleanup fixture that runs after all tests in this module
 @pytest.fixture(scope="module", autouse=True)
