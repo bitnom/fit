@@ -1,6 +1,6 @@
 # fit
 
-This tool manages the import and incremental update of multiple Git repositories into a single Fossil repository. Each Git repository is organized into its own subdirectory within the Fossil repository, and its branches are prefixed with the subdirectory name (e.g., `hotbox/master`). The tool provides three commands: `init` to initialize the Fossil repository, `import` to add a new Git repository, and `update` to incrementally update an existing one.
+This tool manages the import and incremental update of multiple Git repositories into a single Fossil repository, effectively creating a monorepo. Each Git repository is organized into its own subdirectory within the Fossil repository, and its branches are prefixed with the subdirectory name (e.g., `hotbox/master`). The tool provides three commands: `init` to initialize the Fossil repository, `import` to add a new Git repository, and `update` to incrementally update an existing one.
 
 ## How to Use
 
