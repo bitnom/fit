@@ -10,7 +10,7 @@ from pathlib import Path
 # Add the parent directory to the Python path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import fit
+import src.fit.fit as fit
 
 @pytest.fixture
 def temp_dir():
