@@ -45,3 +45,4 @@ htmlcov/
 *.swo
 
 .python-version
+.env
