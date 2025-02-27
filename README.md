@@ -1,6 +1,14 @@
 # fitrepo
 
-This tool manages the import and incremental update of multiple Git repositories into a single Fossil repository, effectively creating a monorepo. Each Git repository is organized into its own subdirectory within the Fossil repository, and its branches are prefixed with the subdirectory name (e.g., `hotbox/master`). The tool provides three commands: `init` to initialize the Fossil repository, `import` to add a new Git repository, and `update` to incrementally update an existing one.
+This tool manages the import and incremental update of multiple Git repositories into a single Fossil repository, effectively creating a monorepo. Each Git repository is organized into its own subdirectory within the Fossil repository, and its branches are prefixed with the subdirectory name (e.g., `hotbox/master`).
+
+## Installation & Use
+
+### Using pip
+```bash
+pip install fitrepo
+uv tool run fitrepo --help
+```
 
 ## How to Use
 
@@ -10,24 +18,24 @@ Run the script from the directory where you want the Fossil repository (`monorep
 
 1. **Initialize the Fossil Repository**
    ```bash
-   python fitrepo.py init
+   uv tool run fitrepo init
    ```
    - Creates `monorepo.fossil` if it doesn’t exist.
    - Creates an empty `fitrepo.json` configuration file if it doesn’t exist.
 
 2. **Import a Git Repository**
    ```bash
-   python fitrepo.py import <git-repo-url> <subdir-name>
+   uv tool run fitrepo import <git-repo-url> <subdir-name>
    ```
-   - Example: `python fitrepo.py import https://github.com/user/repo.git hotbox`
+   - Example: `uv tool run fitrepo import https://github.com/user/repo.git hotbox`
    - Clones the Git repository, moves its files into the `hotbox` subdirectory, prefixes its branches (e.g., `hotbox/master`), and imports it into the Fossil repository.
    - Stores configuration details in `fitrepo.json`.
 
 3. **Update an Existing Git Repository**
    ```bash
-   python fitrepo.py update <subdir-name>
+   uv tool run fitrepo update <subdir-name>
    ```
-   - Example: `python fitrepo.py update hotbox`
+   - Example: `uv tool run fitrepo update hotbox`
    - Pulls the latest changes from the Git repository associated with `hotbox`, reapplies the filters, and incrementally updates the Fossil repository.
 
 ### Configuration File (`fitrepo.json`)
@@ -55,8 +63,9 @@ The tool maintains a `fitrepo.json` file to track imported repositories. Example
 
 ## Requirements
 
-- **Python 3.x**
-- **Git** (with `git filter-repo` installed; install via `pip install git-filter-repo`)
+- **Python 3.12+**
+- **Git**
+- **git-filter-repo** (automatically installed as a dependency)
 - **Fossil** (installed and accessible from the command line)
 
 ## Notes

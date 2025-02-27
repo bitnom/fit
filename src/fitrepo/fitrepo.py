@@ -35,9 +35,12 @@ def check_dependencies():
         
         # Check git-filter-repo
         try:
-            subprocess.run(['git', 'filter-repo', '--version'], check=True, stdout=subprocess.PIPE)
+            subprocess.run(['git-filter-repo', '--version'], check=True, stdout=subprocess.PIPE)
         except subprocess.CalledProcessError:
             logger.error("git-filter-repo is not installed. Install it with: pip install git-filter-repo")
+            return False
+        except FileNotFoundError:
+            logger.error("git-filter-repo is not found in PATH. Install it with: pip install git-filter-repo")
             return False
         
         # Check fossil
