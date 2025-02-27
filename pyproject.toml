@@ -1,6 +1,6 @@
 [project]
 name = "fitrepo"
-version = "0.1.0"
+version = "0.1.1"
 description = "Tool for managing Git repositories in a Fossil monorepo"
 readme = "README.md"
 requires-python = ">=3.12"
