@@ -38,6 +38,20 @@ Run the script from the directory where you want the Fossil repository (`monorep
    - Example: `uv tool run fitrepo update hotbox`
    - Pulls the latest changes from the Git repository associated with `hotbox`, reapplies the filters, and incrementally updates the Fossil repository.
 
+### Command-line Options
+
+The tool supports several global options that can be used with any command:
+
+- `--help`: Show help message and exit.
+- `--version`: Show the version of the tool and exit.
+- `--verbose`: Enable verbose output.
+- `--quiet`: Suppress non-error messages.
+- `--config FILE`: Specify a custom configuration file.
+- `--no-fetch`: Do not fetch the latest changes from the remote repository.
+- `--no-push`: Do not push changes to the remote repository.
+- `--force`: Force the operation to proceed even if there are warnings or errors.
+- `--dry-run`: Show what would be done without making any changes.
+
 ### Configuration File (`fitrepo.json`)
 
 The tool maintains a `fitrepo.json` file to track imported repositories. Example content after importing a repository:
