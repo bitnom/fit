@@ -1,6 +1,6 @@
 [project]
 name = "fitrepo"
-version = "0.1.1"
+version = "0.1.2"
 description = "Tool for managing Git repositories in a Fossil monorepo"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,9 +13,9 @@ dependencies = [
 ]
 
 [project.scripts]
-fit = "fitrepo:main"
-fitrepo = "fitrepo:main"
-fossil-import-tool = "fitrepo:main"
+fit = "fitrepo.fitrepo:main"
+fitrepo = "fitrepo.fitrepo:main"
+fossil-import-tool = "fitrepo.fitrepo:main"
 
 [project.urls]
 "Homepage" = "https://github.com/bitnom/fitrepo"
