@@ -130,11 +130,11 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
         subprocess.run(['git', 'clone', git_repo_url, str(git_clone_path)], check=True)
         
         with cd(git_clone_path):
-            # Apply git filter-repo to move files and rename branches
+            # Apply git-filter-repo to move files and rename branches
             logger.info(f"Moving files to subdirectory '{subdir_name}' and renaming branches...")
             refname_rewriter = f"return 'refs/heads/{subdir_name}/' + refname[11:] if refname.startswith('refs/heads/') else refname"
             subprocess.run(
-                ['git', 'filter-repo', '--to-subdirectory-filter', subdir_name, '--refname-rewriter', refname_rewriter],
+                ['git-filter-repo', '--to-subdirectory-filter', subdir_name, '--refname-rewriter', refname_rewriter],
                 check=True
             )
             
@@ -192,11 +192,11 @@ def update_git_repo(subdir_name, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
             logger.info(f"Pulling latest changes for '{subdir_name}'...")
             subprocess.run(['git', 'pull'], check=True)
             
-            # Reapply git filter-repo
+            # Reapply git-filter-repo
             logger.info(f"Reapplying filters for '{subdir_name}'...")
             refname_rewriter = f"return 'refs/heads/{subdir_name}/' + refname[11:] if refname.startswith('refs/heads/') else refname"
             subprocess.run(
-                ['git', 'filter-repo', '--to-subdirectory-filter', subdir_name, '--refname-rewriter', refname_rewriter, '--force'],
+                ['git-filter-repo', '--to-subdirectory-filter', subdir_name, '--refname-rewriter', refname_rewriter, '--force'],
                 check=True
             )
             
