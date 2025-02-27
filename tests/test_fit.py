@@ -7,10 +7,10 @@ from unittest.mock import patch, MagicMock, mock_open
 import sys
 from pathlib import Path
 
-# Add the parent directory to the Python path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add the src directory to the Python path
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-import src.fit.fit as fit
+from fit import fit
 
 @pytest.fixture
 def temp_dir():
@@ -79,21 +79,21 @@ def test_init_fossil_repo(mock_run, temp_dir):
     mock_run.assert_called_once_with(['fossil', 'init', fit.FOSSIL_REPO], check=True)
     assert os.path.exists(fit.CONFIG_FILE)
 
-@patch('fit.import_git_repo')
+@patch('fit.fit.import_git_repo')
 def test_import_command(mock_import, temp_dir):
     """Test the import command in main function."""
     with patch('sys.argv', ['fit.py', 'import', 'https://github.com/user/repo.git', 'test_repo']):
         fit.main()
     mock_import.assert_called_once_with('https://github.com/user/repo.git', 'test_repo')
 
-@patch('fit.update_git_repo')
+@patch('fit.fit.update_git_repo')
 def test_update_command(mock_update, temp_dir):
     """Test the update command in main function."""
     with patch('sys.argv', ['fit.py', 'update', 'test_repo']):
         fit.main()
     mock_update.assert_called_once_with('test_repo')
 
-@patch('fit.list_repos')
+@patch('fit.fit.list_repos')
 def test_list_command(mock_list, temp_dir):
     """Test the list command in main function."""
     with patch('sys.argv', ['fit.py', 'list']):
