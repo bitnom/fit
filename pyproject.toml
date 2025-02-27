@@ -1,9 +1,13 @@
 [project]
 name = "fit"
 version = "0.1.0"
-description = "Monorepos using fossil and git"
+description = "Fossil Import Tool - Import and manage Git repositories in a Fossil repository"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "bitnom", email = "14287229+bitnom@users.noreply.github.com"},
+]
 dependencies = [
     "git-filter-repo>=2.47.0",
 ]
