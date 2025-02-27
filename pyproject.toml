@@ -1,6 +1,6 @@
 [project]
 name = "fitrepo"
-version = "0.1.2"
+version = "0.1.3"
 description = "Tool for managing Git repositories in a Fossil monorepo"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,13 +13,16 @@ dependencies = [
 ]
 
 [project.scripts]
-fit = "fitrepo.fitrepo:main"
-fitrepo = "fitrepo.fitrepo:main"
-fossil-import-tool = "fitrepo.fitrepo:main"
+fit = "src.fitrepo.fitrepo:main"
+fitrepo = "src.fitrepo.fitrepo:main"
+fossil-import-tool = "src.fitrepo.fitrepo:main"
 
 [project.urls]
 "Homepage" = "https://github.com/bitnom/fitrepo"
 "Bug Tracker" = "https://github.com/bitnom/fitrepo/issues"
+
+[tool.hatch.build]
+packages = ["src"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
@@ -38,6 +41,9 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v"
+
+[tool.uv]
+package = true
 
 [build-system]
 requires = ["hatchling"]
