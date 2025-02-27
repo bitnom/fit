@@ -102,12 +102,27 @@ def init_fossil_repo(fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE):
 
 # Validate inputs
 def validate_git_url(url):
-    """Validate that the input looks like a git repository URL."""
-    # Basic validation - could be enhanced for more specific rules
-    if not url or not (url.startswith('http') or url.startswith('git') or url.startswith('ssh')):
-        logger.error(f"Invalid Git URL format: {url}")
+    """Validate that the input looks like a git repository URL or local path."""
+    # Return false for empty strings
+    if not url:
+        logger.error("Git URL or path cannot be empty")
         return False
-    return True
+    
+    # Check if it's a recognized URL scheme
+    if url.startswith('http') or url.startswith('git') or url.startswith('ssh'):
+        return True
+    
+    # Check if it's a local path that exists
+    path = Path(url)
+    if path.exists() and (path / '.git').exists():
+        return True
+    elif path.exists():
+        # Path exists but might not be a git repo
+        logger.warning(f"Path exists but may not be a Git repository: {url}")
+        return True
+    else:
+        logger.error(f"Path does not exist: {url}")
+        return False
 
 def validate_subdir_name(name):
     """Validate that the subdirectory name is valid."""
@@ -138,13 +153,37 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
         subprocess.run(['git', 'clone', '--no-local', git_repo_url, str(git_clone_path)], check=True)
         
         with cd(git_clone_path):
-            # Apply git-filter-repo to move files and rename branches
-            logger.info(f"Moving files to subdirectory '{subdir_name}' and renaming branches...")
-            refname_rewriter = f"return 'refs/heads/{subdir_name}/' + refname[11:] if refname.startswith('refs/heads/') else refname"
-            subprocess.run(
-                ['git-filter-repo', '--to-subdirectory-filter', subdir_name, '--refname-rewriter', refname_rewriter],
-                check=True
-            )
+            # Step 1: Apply git-filter-repo to move files to a subdirectory
+            logger.info(f"Moving files to subdirectory '{subdir_name}'...")
+            subprocess.run(['git-filter-repo', '--to-subdirectory-filter', subdir_name], check=True)
+            
+            # Step 2: Rename branches with a prefix
+            # Create a temporary Python script to rename refs
+            refs_script_path = Path(f"rename_refs_{subdir_name}.py")
+            with open(refs_script_path, "w") as f:
+                f.write(f'''
+import sys
+
+def rewrite_ref(ref):
+    if ref.startswith(b'refs/heads/'):
+        return b'refs/heads/{subdir_name}/' + ref[len(b'refs/heads/'):]
+    return ref
+
+if __name__ == '__main__':
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        old_ref = line.encode('utf-8')
+        new_ref = rewrite_ref(old_ref)
+        print(f"{{old_ref.decode('utf-8')}} {{new_ref.decode('utf-8')}}")
+''')
+            
+            logger.info(f"Renaming branches with prefix '{subdir_name}/'...")
+            subprocess.run(['git-filter-repo', '--refs-transform', f'python3 {refs_script_path}'], check=True)
+            
+            # Clean up the temporary script
+            refs_script_path.unlink()
             
             # Define marks file paths
             git_marks_file = original_cwd / marks_dir / f"{subdir_name}_git.marks"
@@ -200,13 +239,37 @@ def update_git_repo(subdir_name, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
             logger.info(f"Pulling latest changes for '{subdir_name}'...")
             subprocess.run(['git', 'pull'], check=True)
             
-            # Reapply git-filter-repo
-            logger.info(f"Reapplying filters for '{subdir_name}'...")
-            refname_rewriter = f"return 'refs/heads/{subdir_name}/' + refname[11:] if refname.startswith('refs/heads/') else refname"
-            subprocess.run(
-                ['git-filter-repo', '--to-subdirectory-filter', subdir_name, '--refname-rewriter', refname_rewriter, '--force'],
-                check=True
-            )
+            # Step 1: Apply git-filter-repo to move files to a subdirectory
+            logger.info(f"Moving files to subdirectory '{subdir_name}'...")
+            subprocess.run(['git-filter-repo', '--to-subdirectory-filter', subdir_name, '--force'], check=True)
+            
+            # Step 2: Rename branches with a prefix
+            # Create a temporary Python script to rename refs
+            refs_script_path = Path(f"rename_refs_{subdir_name}.py")
+            with open(refs_script_path, "w") as f:
+                f.write(f'''
+import sys
+
+def rewrite_ref(ref):
+    if ref.startswith(b'refs/heads/'):
+        return b'refs/heads/{subdir_name}/' + ref[len(b'refs/heads/'):]
+    return ref
+
+if __name__ == '__main__':
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        old_ref = line.encode('utf-8')
+        new_ref = rewrite_ref(old_ref)
+        print(f"{{old_ref.decode('utf-8')}} {{new_ref.decode('utf-8')}}")
+''')
+            
+            logger.info(f"Renaming branches with prefix '{subdir_name}/'...")
+            subprocess.run(['git-filter-repo', '--refs-transform', f'python3 {refs_script_path}', '--force'], check=True)
+            
+            # Clean up the temporary script
+            refs_script_path.unlink()
             
             # Export and import new changes
             logger.info("Exporting new changes and updating Fossil repository...")
