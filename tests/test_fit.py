@@ -14,11 +14,28 @@ from fit import fit
 
 @pytest.fixture
 def temp_dir():
-    """Provide a temporary directory for testing."""
+    """Provide a temporary directory for testing and ensure cleanup."""
     with tempfile.TemporaryDirectory() as tmpdirname:
         original_dir = os.getcwd()
         os.chdir(tmpdirname)
-        yield tmpdirname
+        
+        # Create temporary directories for test artifacts
+        Path('temp_git_clones').mkdir(exist_ok=True)
+        Path('temp_marks').mkdir(exist_ok=True)
+        
+        # Patch the constants to use our temporary directories
+        with patch.object(fit, 'GIT_CLONES_DIR', 'temp_git_clones'), \
+             patch.object(fit, 'MARKS_DIR', 'temp_marks'):
+            
+            yield tmpdirname
+            
+        # Cleanup (although tempfile will delete the directory, this ensures
+        # files are removed even if we change to a non-tempfile approach)
+        if Path('temp_git_clones').exists():
+            shutil.rmtree('temp_git_clones', ignore_errors=True)
+        if Path('temp_marks').exists():
+            shutil.rmtree('temp_marks', ignore_errors=True)
+            
         os.chdir(original_dir)
 
 @pytest.fixture
@@ -32,6 +49,13 @@ def mock_config():
             "fossil_marks_file": ".marks/test_repo_fossil.marks"
         }
     }
+
+@pytest.fixture(autouse=True)
+def prevent_external_calls():
+    """Prevent any test from making external subprocess calls accidentally."""
+    with patch('subprocess.Popen'):
+        with patch('subprocess.run'):
+            yield
 
 def test_load_config_nonexistent(temp_dir):
     """Test loading a config that doesn't exist."""
@@ -108,3 +132,17 @@ def test_check_dependencies(mock_run, temp_dir):
 
     mock_run.side_effect = FileNotFoundError("Command not found")
     assert fit.check_dependencies() is False
+
+# Cleanup fixture that runs after all tests in this module
+@pytest.fixture(scope="module", autouse=True)
+def cleanup_after_all_tests():
+    """Clean up any stray directories after all tests run."""
+    yield
+    # This runs after all tests in the module
+    current_dir = os.getcwd()
+    git_clones = Path(current_dir) / '.git_clones'
+    marks = Path(current_dir) / '.marks'
+    if git_clones.exists():
+        shutil.rmtree(git_clones, ignore_errors=True)
+    if marks.exists():
+        shutil.rmtree(marks, ignore_errors=True)
