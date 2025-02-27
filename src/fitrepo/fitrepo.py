@@ -127,7 +127,7 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
     try:
         # Clone the Git repository
         logger.info(f"Cloning Git repository from {git_repo_url}...")
-        subprocess.run(['git', 'clone', git_repo_url, str(git_clone_path)], check=True)
+        subprocess.run(['git', 'clone', '--no-local', git_repo_url, str(git_clone_path)], check=True)
         
         with cd(git_clone_path):
             # Apply git-filter-repo to move files and rename branches
