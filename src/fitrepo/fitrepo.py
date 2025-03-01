@@ -10,6 +10,7 @@ from pathlib import Path
 import logging
 import shutil
 import importlib.metadata
+import re
 
 # Get version using importlib.metadata
 try:
@@ -140,35 +141,81 @@ def validate_git_url(url):
     logger.error(f"Path does not exist: {url}")
     return False
 
+def normalize_path(path_str):
+    """
+    Normalize a path for use as a subdirectory.
+    Removes leading/trailing slashes and normalizes internal separators.
+    """
+    # Convert to Path object and back to string for normalization
+    path = Path(path_str)
+    # Convert back to string with forward slashes
+    normalized = str(path).replace('\\', '/')
+    # Remove leading and trailing slashes
+    normalized = normalized.strip('/')
+    return normalized
+
+def path_to_branch_prefix(path_str):
+    """
+    Convert a normalized path to a branch prefix suitable for fossil.
+    Replaces path separators with a safe character for branch naming.
+    """
+    # Replace slashes with double underscores to ensure uniqueness
+    return normalize_path(path_str).replace('/', '__')
+
+def branch_prefix_to_path(prefix):
+    """Convert a branch prefix back to its path representation."""
+    return prefix.replace('__', '/')
+
 def validate_subdir_name(name):
-    """Validate that the subdirectory name is valid."""
-    if not name or '/' in name or name.startswith('.'):
-        logger.error(f"Invalid subdirectory name: {name}. Must not contain '/' or start with '.'")
+    """
+    Validate that the subdirectory path is valid.
+    Now allows paths with slashes but checks for other invalid characters.
+    """
+    if not name:
+        logger.error("Subdirectory name cannot be empty")
         return False
+        
+    # Normalize the path
+    norm_path = normalize_path(name)
+    
+    # Check for invalid patterns
+    if not norm_path or norm_path.startswith('.'):
+        logger.error(f"Invalid subdirectory path: {name}. Must not start with '.'")
+        return False
+        
+    # Check for invalid characters (beyond just slashes)
+    if re.search(r'[<>:"|?*\x00-\x1F]', norm_path):
+        logger.error(f"Invalid characters in subdirectory path: {name}")
+        return False
+        
     return True
 
 # Common operations used by both import and update
-def process_git_repo(git_clone_path, subdir_name, force=False):
+def process_git_repo(git_clone_path, subdir_path, force=False):
     """Apply subdirectory filter and rename branches with prefix."""
+    # Normalize the subdirectory path
+    norm_subdir = normalize_path(subdir_path)
+    branch_prefix = path_to_branch_prefix(norm_subdir)
+    
     # Apply git-filter-repo to move files to a subdirectory
-    logger.info(f"Moving files to subdirectory '{subdir_name}'...")
-    filter_cmd = ['git-filter-repo', '--to-subdirectory-filter', subdir_name]
+    logger.info(f"Moving files to subdirectory '{norm_subdir}'...")
+    filter_cmd = ['git-filter-repo', '--to-subdirectory-filter', norm_subdir]
     if force:
         filter_cmd.append('--force')
     run_command(filter_cmd)
     
     # Rename branches with subdirectory prefix
-    logger.info(f"Renaming branches with prefix '{subdir_name}/'...")
+    logger.info(f"Renaming branches with prefix '{branch_prefix}/'...")
     result = run_command(['git', 'branch'], capture_output=True, text=True)
     branches = [b.strip()[2:] if b.strip().startswith('* ') else b.strip() 
                for b in result.stdout.split('\n') if b.strip()]
     
     # Rename each branch that doesn't already have the prefix
     for branch in branches:
-        if branch and not branch.startswith(f"{subdir_name}/"):
-            run_command(['git', 'branch', '-m', branch, f"{subdir_name}/{branch}"])
+        if branch and not branch.startswith(f"{branch_prefix}/"):
+            run_command(['git', 'branch', '-m', branch, f"{branch_prefix}/{branch}"])
 
-def export_import_git_to_fossil(subdir_name, git_marks_file, fossil_marks_file, fossil_repo, import_marks=False):
+def export_import_git_to_fossil(subdir_path, git_marks_file, fossil_marks_file, fossil_repo, import_marks=False):
     """Export from Git and import into Fossil with appropriate marks files."""
     logger.info(f"{'Updating' if import_marks else 'Exporting'} Git history to Fossil...")
     
@@ -194,23 +241,26 @@ def export_import_git_to_fossil(subdir_name, git_marks_file, fossil_marks_file, 
     if fossil_import.returncode != 0:
         raise subprocess.CalledProcessError(fossil_import.returncode, 'fossil import')
 
-def update_fossil_checkout(subdir_name):
+def update_fossil_checkout(subdir_path):
     """Update the fossil checkout to a branch with the given subdirectory prefix."""
+    # Convert path to branch prefix
+    branch_prefix = path_to_branch_prefix(normalize_path(subdir_path))
+    
     logger.info("Checking available branches...")
     result = run_command(['fossil', 'branch', 'list'], capture_output=True, text=True)
     
     # Find first branch with the expected prefix and update to it
     for line in result.stdout.splitlines():
         line = line.strip()
-        if line.startswith(f"{subdir_name}/"):
+        if line.startswith(f"{branch_prefix}/"):
             logger.info(f"Updating checkout to branch '{line}'...")
             run_command(['fossil', 'update', line])
             return
             
-    logger.warning(f"No branches starting with '{subdir_name}/' were found. Your checkout was not updated.")
+    logger.warning(f"No branches starting with '{branch_prefix}/' were found. Your checkout was not updated.")
 
 # Common setup for repository operations
-def setup_repo_operation(subdir_name=None, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE):
+def setup_repo_operation(subdir_path=None, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE):
     """Common setup for repository operations."""
     config = load_config(config_file)
     
@@ -219,9 +269,11 @@ def setup_repo_operation(subdir_name=None, fossil_repo=FOSSIL_REPO, config_file=
         config['repositories'] = {}
     
     # Check if subdir exists in config if provided
-    if subdir_name and subdir_name not in config.get('repositories', {}):
-        logger.error(f"Subdirectory '{subdir_name}' not found in configuration.")
-        raise ValueError(f"Subdirectory '{subdir_name}' not found in configuration.")
+    if subdir_path:
+        norm_path = normalize_path(subdir_path)
+        if norm_path not in config.get('repositories', {}):
+            logger.error(f"Subdirectory '{norm_path}' not found in configuration.")
+            raise ValueError(f"Subdirectory '{norm_path}' not found in configuration.")
         
     # Ensure fossil repository is open
     if not is_fossil_repo_open():
@@ -233,19 +285,25 @@ def setup_repo_operation(subdir_name=None, fossil_repo=FOSSIL_REPO, config_file=
     return config
 
 # Import a Git repository
-def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, 
+def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, 
                     git_clones_dir=GIT_CLONES_DIR, marks_dir=MARKS_DIR):
     """Import a Git repository into the Fossil repository under a subdirectory."""
-    if not validate_git_url(git_repo_url) or not validate_subdir_name(subdir_name):
+    if not validate_git_url(git_repo_url) or not validate_subdir_name(subdir_path):
         raise ValueError("Invalid input parameters")
     
+    # Normalize the subdirectory path
+    norm_path = normalize_path(subdir_path)
+    
     config = setup_repo_operation(fossil_repo=fossil_repo, config_file=config_file)
-    if subdir_name in config.get('repositories', {}):
-        logger.error(f"Subdirectory '{subdir_name}' is already imported.")
-        raise ValueError(f"Subdirectory '{subdir_name}' is already imported.")
+    if norm_path in config.get('repositories', {}):
+        logger.error(f"Subdirectory '{norm_path}' is already imported.")
+        raise ValueError(f"Subdirectory '{norm_path}' is already imported.")
+    
+    # Use sanitized subdirectory name for file/directory names
+    sanitized_name = norm_path.replace('/', '_')
     
     original_cwd = Path.cwd()
-    git_clone_path = original_cwd / git_clones_dir / subdir_name
+    git_clone_path = original_cwd / git_clones_dir / sanitized_name
     
     # Clean existing clone directory if needed
     if git_clone_path.exists():
@@ -259,19 +317,19 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
         run_command(['git', 'clone', '--no-local', git_repo_url, str(git_clone_path)])
         
         # Define marks file paths
-        git_marks_file = original_cwd / marks_dir / f"{subdir_name}_git.marks"
-        fossil_marks_file = original_cwd / marks_dir / f"{subdir_name}_fossil.marks"
+        git_marks_file = original_cwd / marks_dir / f"{sanitized_name}_git.marks"
+        fossil_marks_file = original_cwd / marks_dir / f"{sanitized_name}_fossil.marks"
         
         with cd(git_clone_path):
             # Process Git repo and import into Fossil
-            process_git_repo(git_clone_path, subdir_name)
-            export_import_git_to_fossil(subdir_name, git_marks_file, fossil_marks_file, original_cwd / fossil_repo)
+            process_git_repo(git_clone_path, norm_path)
+            export_import_git_to_fossil(norm_path, git_marks_file, fossil_marks_file, original_cwd / fossil_repo)
         
         # Update configuration
         if 'repositories' not in config:
             config['repositories'] = {}
             
-        config['repositories'][subdir_name] = {
+        config['repositories'][norm_path] = {
             'git_repo_url': git_repo_url,
             'git_clone_path': str(git_clone_path),
             'git_marks_file': str(git_marks_file),
@@ -280,34 +338,37 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
         save_config(config, config_file)
         
         # Update checkout and report success
-        update_fossil_checkout(subdir_name)
-        logger.info(f"Successfully imported '{git_repo_url}' into subdirectory '{subdir_name}'.")
+        update_fossil_checkout(norm_path)
+        logger.info(f"Successfully imported '{git_repo_url}' into subdirectory '{norm_path}'.")
     except Exception as e:
         logger.error(f"Error during import: {str(e)}")
         raise
 
 # Update a Git repository
-def update_git_repo(subdir_name, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE):
+def update_git_repo(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE):
     """Update the Fossil repository with new changes from a Git repository."""
-    config = setup_repo_operation(subdir_name, fossil_repo, config_file)
+    # Normalize the path for config lookup
+    norm_path = normalize_path(subdir_path)
+    
+    config = setup_repo_operation(norm_path, fossil_repo, config_file)
     
     try:
-        git_clone_path = Path(config['repositories'][subdir_name]['git_clone_path'])
-        git_marks_file = Path(config['repositories'][subdir_name]['git_marks_file'])
-        fossil_marks_file = Path(config['repositories'][subdir_name]['fossil_marks_file'])
+        git_clone_path = Path(config['repositories'][norm_path]['git_clone_path'])
+        git_marks_file = Path(config['repositories'][norm_path]['git_marks_file'])
+        fossil_marks_file = Path(config['repositories'][norm_path]['fossil_marks_file'])
         original_cwd = Path.cwd()
         
         with cd(git_clone_path):
             # Pull latest changes and update Fossil
-            logger.info(f"Pulling latest changes for '{subdir_name}'...")
+            logger.info(f"Pulling latest changes for '{norm_path}'...")
             run_command(['git', 'pull'])
             
             # Process Git repo and update Fossil
-            process_git_repo(git_clone_path, subdir_name, force=True)
-            export_import_git_to_fossil(subdir_name, git_marks_file, fossil_marks_file, 
+            process_git_repo(git_clone_path, norm_path, force=True)
+            export_import_git_to_fossil(norm_path, git_marks_file, fossil_marks_file, 
                                       original_cwd / fossil_repo, import_marks=True)
         
-        logger.info(f"Successfully updated '{subdir_name}' in the Fossil repository.")
+        logger.info(f"Successfully updated '{norm_path}' in the Fossil repository.")
     except Exception as e:
         logger.error(f"Error during update: {str(e)}")
         raise
