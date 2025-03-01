@@ -119,7 +119,7 @@ def test_ensure_directories(temp_dir):
     assert os.path.exists(test_git_dir)
     assert os.path.exists(test_marks_dir)
 
-# Update test_init_fossil_repo to include new parameters
+# Update test_init_fossil_repo to include new fossil_args parameter
 @patch('subprocess.run')
 def test_init_fossil_repo(mock_run, temp_dir):
     """Test initialization of fossil repository with custom values."""
@@ -141,6 +141,93 @@ def test_init_fossil_repo(mock_run, temp_dir):
     # Check that the first 3 calls match our expectations
     assert mock_run.mock_calls[0:3] == expected_calls
     assert os.path.exists(custom_config)
+
+# Test init with fossil arguments
+@patch('subprocess.run')
+def test_init_fossil_repo_with_args(mock_run, temp_dir):
+    """Test initialization of fossil repository with fossil arguments."""
+    custom_fossil = "custom.fossil"
+    custom_config = "custom.json"
+    fossil_args = ["-f"]
+    
+    # Setup mock to simulate that fossil repo is not open yet
+    mock_run.return_value.returncode = 1  # Non-zero returncode means repo not open
+    
+    fitrepo.init_fossil_repo(custom_fossil, custom_config, fossil_args)
+    
+    # Verify expected sequence of calls with fossil args applied only to open command
+    expected_calls = [
+        call(['fossil', 'init', custom_fossil], check=True, capture_output=False, text=False),
+        call(['fossil', 'status'], check=False, capture_output=False, text=False),
+        call(['fossil', 'open', '-f', custom_fossil], check=True, capture_output=False, text=False)
+    ]
+    
+    # Check that the first 3 calls match our expectations
+    assert mock_run.mock_calls[0:3] == expected_calls
+    assert os.path.exists(custom_config)
+
+# Add test for command-specific fossil args
+@patch('fitrepo.fitrepo.init_fossil_repo')
+def test_init_command_with_fossil_open_args(mock_init, temp_dir):
+    """Test the init command with forwarded fossil open arguments."""
+    with patch('sys.argv', ['fitrepo.py', 'init', '--fwd-fossil-open=-f']):
+        fitrepo.main()
+    
+    mock_init.assert_called_with(
+        fitrepo.FOSSIL_REPO,
+        fitrepo.CONFIG_FILE,
+        ['-f'],  # open args
+        []       # init args (empty)
+    )
+
+# Update test for the --fwdfossil command line argument 
+@patch('fitrepo.fitrepo.init_fossil_repo')
+def test_init_command_with_fossil_args(mock_init, temp_dir):
+    """Test the init command with forwarded fossil arguments."""
+    # Test with string-style argument to fwdfossil using equals sign
+    with patch('sys.argv', ['fitrepo.py', '--fwdfossil=-f', 'init']):
+        fitrepo.main()
+    
+    mock_init.assert_called_with(
+        fitrepo.FOSSIL_REPO,
+        fitrepo.CONFIG_FILE,
+        ['-f']
+    )
+    mock_init.reset_mock()
+    
+    # Test with fwdfossil after command with equals sign
+    with patch('sys.argv', ['fitrepo.py', 'init', '--fwdfossil=-f']):
+        fitrepo.main()
+    
+    mock_init.assert_called_with(
+        fitrepo.FOSSIL_REPO,
+        fitrepo.CONFIG_FILE,
+        ['-f']
+    )
+    mock_init.reset_mock()
+    
+    # Test with multiple args in a quoted string with equals sign
+    with patch('sys.argv', ['fitrepo.py', 'init', '--fwdfossil=-f --force']):
+        fitrepo.main()
+    
+    mock_init.assert_called_with(
+        fitrepo.FOSSIL_REPO,
+        fitrepo.CONFIG_FILE,
+        ['-f', '--force']
+    )
+
+# Add test for the --fwdfossil command line argument
+@patch('fitrepo.fitrepo.init_fossil_repo')
+def test_init_command_with_fossil_args(mock_init, temp_dir):
+    """Test the init command with forwarded fossil arguments."""
+    with patch('sys.argv', ['fitrepo.py', '--fwdfossil', '-f', 'init']):
+        fitrepo.main()
+    
+    mock_init.assert_called_once_with(
+        fitrepo.FOSSIL_REPO,
+        fitrepo.CONFIG_FILE,
+        ['-f']
+    )
 
 # Update test_import_command to match new parameter signature
 @patch('fitrepo.fitrepo.import_git_repo')

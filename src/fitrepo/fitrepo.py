@@ -11,6 +11,7 @@ import logging
 import shutil
 import importlib.metadata
 import re
+import shlex
 
 # Get version using importlib.metadata
 try:
@@ -23,17 +24,27 @@ logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger()
 
 # Default constants
-FOSSIL_REPO = 'monorepo.fossil'
+FOSSIL_REPO = 'fitrepo.fossil'
 CONFIG_FILE = 'fitrepo.json'
-GIT_CLONES_DIR = '.git_clones'
-MARKS_DIR = '.marks'
+GIT_CLONES_DIR = '.fitrepo/git_clones'
+MARKS_DIR = '.fitrepo/marks'
 
 # Helper functions for common operations
-def run_command(cmd, check=True, capture_output=False, text=False):
+def run_command(cmd, check=True, capture_output=False, text=False, fossil_args=None, apply_args=True):
     """Run a command and return its result, with unified error handling."""
     try:
-        logger.debug(f"Running: {' '.join(cmd)}")
-        return subprocess.run(cmd, check=check, capture_output=capture_output, text=text)
+        # Add fossil args if the command is fossil, args are provided, and we want to apply them
+        if fossil_args and cmd[0] == 'fossil' and apply_args:
+            # Insert additional fossil args after the fossil command and subcommand
+            if len(cmd) > 1:
+                cmd_with_args = [cmd[0], cmd[1]] + fossil_args + cmd[2:]
+            else:
+                cmd_with_args = [cmd[0]] + fossil_args
+            logger.debug(f"Running with fossil args: {' '.join(cmd_with_args)}")
+            return subprocess.run(cmd_with_args, check=check, capture_output=capture_output, text=text)
+        else:
+            logger.debug(f"Running: {' '.join(cmd)}")
+            return subprocess.run(cmd, check=check, capture_output=capture_output, text=text)
     except subprocess.CalledProcessError as e:
         logger.error(f"Command failed: {e}")
         if hasattr(e, 'stderr') and e.stderr:
@@ -93,19 +104,22 @@ def is_fossil_repo_open():
     except:
         return False
 
-def init_fossil_repo(fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE):
+def init_fossil_repo(fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, fossil_open_args=None, fossil_init_args=None):
     """Initialize the Fossil repository and configuration file."""
     try:
         # Create and/or open repository as needed
         if not Path(fossil_repo).exists():
             logger.info(f"Creating Fossil repository {fossil_repo}...")
-            run_command(['fossil', 'init', fossil_repo])
+            # Apply init-specific args to init command
+            run_command(['fossil', 'init', fossil_repo], fossil_args=fossil_init_args)
             if not is_fossil_repo_open():
                 logger.info(f"Opening Fossil repository {fossil_repo}...")
-                run_command(['fossil', 'open', fossil_repo])
+                # Apply open-specific args to open command
+                run_command(['fossil', 'open', fossil_repo], fossil_args=fossil_open_args)
         elif not is_fossil_repo_open():
             logger.info(f"Opening existing Fossil repository {fossil_repo}...")
-            run_command(['fossil', 'open', fossil_repo])
+            # Apply open-specific args to open command
+            run_command(['fossil', 'open', fossil_repo], fossil_args=fossil_open_args)
         else:
             logger.info(f"Fossil repository is already open.")
             
@@ -263,7 +277,7 @@ def update_fossil_checkout(subdir_path):
     logger.warning(f"No branches starting with '{branch_prefix}/' were found. Your checkout was not updated.")
 
 # Common setup for repository operations
-def setup_repo_operation(subdir_path=None, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE):
+def setup_repo_operation(subdir_path=None, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, fossil_args=None):
     """Common setup for repository operations."""
     config = load_config(config_file)
     
@@ -281,7 +295,7 @@ def setup_repo_operation(subdir_path=None, fossil_repo=FOSSIL_REPO, config_file=
     # Ensure fossil repository is open
     if not is_fossil_repo_open():
         logger.info(f"Opening Fossil repository {fossil_repo}...")
-        run_command(['fossil', 'open', fossil_repo])
+        run_command(['fossil', 'open', fossil_repo], fossil_args=fossil_args)
     else:
         logger.info(f"Using already open Fossil repository.")
         
@@ -289,7 +303,7 @@ def setup_repo_operation(subdir_path=None, fossil_repo=FOSSIL_REPO, config_file=
 
 # Import a Git repository
 def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, 
-                    git_clones_dir=GIT_CLONES_DIR, marks_dir=MARKS_DIR):
+                    git_clones_dir=GIT_CLONES_DIR, marks_dir=MARKS_DIR, fossil_args=None):
     """Import a Git repository into the Fossil repository under a subdirectory."""
     if not validate_git_url(git_repo_url) or not validate_subdir_name(subdir_path):
         raise ValueError("Invalid input parameters")
@@ -297,7 +311,7 @@ def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_f
     # Normalize the subdirectory path
     norm_path = normalize_path(subdir_path)
     
-    config = setup_repo_operation(fossil_repo=fossil_repo, config_file=config_file)
+    config = setup_repo_operation(fossil_repo=fossil_repo, config_file=config_file, fossil_args=fossil_args)
     if norm_path in config.get('repositories', {}):
         logger.error(f"Subdirectory '{norm_path}' is already imported.")
         raise ValueError(f"Subdirectory '{norm_path}' is already imported.")
@@ -348,12 +362,12 @@ def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_f
         raise
 
 # Update a Git repository
-def update_git_repo(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE):
+def update_git_repo(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, fossil_args=None):
     """Update the Fossil repository with new changes from a Git repository."""
     # Normalize the path for config lookup
     norm_path = normalize_path(subdir_path)
     
-    config = setup_repo_operation(norm_path, fossil_repo, config_file)
+    config = setup_repo_operation(norm_path, fossil_repo, config_file, fossil_args=fossil_args)
     
     try:
         git_clone_path = Path(config['repositories'][norm_path]['git_clone_path'])
@@ -397,46 +411,106 @@ def list_repos(config_file=CONFIG_FILE):
 # Main function with command-line interface
 def main():
     """Parse command-line arguments and execute the appropriate command."""
+    # Create a parent parser with common arguments
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
+    parent_parser.add_argument('-f', '--fossil-repo', default=FOSSIL_REPO, help=f'Fossil repository file (default: {FOSSIL_REPO})')
+    parent_parser.add_argument('-c', '--config', default=CONFIG_FILE, help=f'Configuration file (default: {CONFIG_FILE})')
+    parent_parser.add_argument('-g', '--git-clones-dir', default=GIT_CLONES_DIR, help=f'Git clones directory (default: {GIT_CLONES_DIR})')
+    parent_parser.add_argument('-m', '--marks-dir', default=MARKS_DIR, help=f'Marks directory (default: {MARKS_DIR})')
+    
+    # Command-specific fossil arguments
+    parent_parser.add_argument('--fwd-fossil-open', 
+                             type=str,
+                             metavar='ARGS',
+                             help='Forward arguments to fossil open command. Example: --fwd-fossil-open="-f"')
+    
+    parent_parser.add_argument('--fwd-fossil-init', 
+                             type=str,
+                             metavar='ARGS',
+                             help='Forward arguments to fossil init command.')
+                            
+    # Keep the general --fwdfossil for backward compatibility but note its limitations
+    parent_parser.add_argument('--fwdfossil', 
+                             type=str,
+                             metavar='FOSSIL_ARGS',
+                             help='Forward arguments to fossil commands (DEPRECATED - use command-specific options). ' +
+                                  'Must use equals sign format: --fwdfossil="-f"')
+    
+    # Main parser that inherits from parent
     parser = argparse.ArgumentParser(description='Fossil Import Tool (fitrepo) - Manage Git repositories in a Fossil repository.')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     
-    # Global options
-    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
-    parser.add_argument('-f', '--fossil-repo', default=FOSSIL_REPO, help=f'Fossil repository file (default: {FOSSIL_REPO})')
-    parser.add_argument('-c', '--config', default=CONFIG_FILE, help=f'Configuration file (default: {CONFIG_FILE})')
-    parser.add_argument('-g', '--git-clones-dir', default=GIT_CLONES_DIR, help=f'Git clones directory (default: {GIT_CLONES_DIR})')
-    parser.add_argument('-m', '--marks-dir', default=MARKS_DIR, help=f'Marks directory (default: {MARKS_DIR})')
+    # Add the common arguments to the main parser too
+    parent_group = parser.add_argument_group('global options')
+    for action in parent_parser._actions:
+        parent_group._group_actions.append(action)
     
-    # Command subparsers
+    # Command subparsers that inherit from parent
     subparsers = parser.add_subparsers(dest='command', required=True, help='Available commands')
-    subparsers.add_parser('init', help='Initialize the Fossil repository and configuration')
-    subparsers.add_parser('list', help='List all imported repositories')
     
-    # Import command
-    import_parser = subparsers.add_parser('import', help='Import a Git repository into the Fossil repository')
+    # Initialize subparser with parent arguments
+    init_parser = subparsers.add_parser('init', help='Initialize the Fossil repository and configuration', parents=[parent_parser])
+    
+    # List subparser with parent arguments
+    list_parser = subparsers.add_parser('list', help='List all imported repositories', parents=[parent_parser])
+    
+    # Import command with parent arguments
+    import_parser = subparsers.add_parser('import', help='Import a Git repository into the Fossil repository', parents=[parent_parser])
     import_parser.add_argument('git_repo_url', help='URL of the Git repository to import')
     import_parser.add_argument('subdir_name', help='Subdirectory name under which to import this repository')
 
-    # Update command
-    update_parser = subparsers.add_parser('update', help='Update the Fossil repository with new changes from a Git repository')
+    # Update command with parent arguments
+    update_parser = subparsers.add_parser('update', help='Update the Fossil repository with new changes from a Git repository', parents=[parent_parser])
     update_parser.add_argument('subdir_name', help='Subdirectory name of the repository to update')
 
-    args = parser.parse_args()
+    # Attempt to parse args first to handle custom errors for fwdfossil
+    try:
+        args = parser.parse_args()
+    except SystemExit as e:
+        # Special handling for the fwdfossil argument issue
+        if '--fwdfossil' in ' '.join(sys.argv) and '-f' in sys.argv:
+            print("ERROR: For the --fwdfossil argument with values starting with '-', you must use the equals sign format:")
+            print("Example: --fwdfossil=\"-f\"")
+            print("This prevents the shell from interpreting '-f' as a separate argument.")
+            sys.exit(1)
+        raise  # Re-raise the SystemExit for other cases
 
     # Set debug level if verbose flag is enabled
     if args.verbose:
         logger.setLevel(logging.DEBUG)
         logger.debug("Verbose mode enabled")
 
+    # Parse fossil arguments if provided
+    fossil_args = []
+    fossil_open_args = []
+    fossil_init_args = []
+    
+    if args.fwdfossil:
+        fossil_args = shlex.split(args.fwdfossil)
+        logger.debug(f"Forwarding fossil arguments (general): {fossil_args}")
+    
+    if args.fwd_fossil_open:
+        fossil_open_args = shlex.split(args.fwd_fossil_open)
+        logger.debug(f"Forwarding fossil open arguments: {fossil_open_args}")
+    
+    if args.fwd_fossil_init:
+        fossil_init_args = shlex.split(args.fwd_fossil_init)
+        logger.debug(f"Forwarding fossil init arguments: {fossil_init_args}")
+        
+    # If no specific args but general args exist, apply general args to open command
+    if not fossil_open_args and fossil_args:
+        fossil_open_args = fossil_args
+
     # Ensure directories exist based on potentially overridden values
     ensure_directories(args.git_clones_dir, args.marks_dir)
 
     # Execute the appropriate command
     commands = {
-        'init': lambda: init_fossil_repo(args.fossil_repo, args.config),
+        'init': lambda: init_fossil_repo(args.fossil_repo, args.config, fossil_open_args, fossil_init_args),
         'import': lambda: import_git_repo(args.git_repo_url, args.subdir_name, args.fossil_repo, 
-                                          args.config, args.git_clones_dir, args.marks_dir),
-        'update': lambda: update_git_repo(args.subdir_name, args.fossil_repo, args.config),
+                                          args.config, args.git_clones_dir, args.marks_dir, fossil_open_args),
+        'update': lambda: update_git_repo(args.subdir_name, args.fossil_repo, args.config, fossil_open_args),
         'list': lambda: list_repos(args.config)
     }
     
