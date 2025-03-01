@@ -110,7 +110,10 @@ def init_fossil_repo(fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE):
             
         if not Path(config_file).exists():
             logger.info(f"Creating configuration file {config_file}...")
-            save_config({}, config_file)
+            # Get the directory name of the current working directory
+            dir_name = Path.cwd().name
+            # Save the configuration with the name parameter and empty repositories
+            save_config({'name': dir_name, 'repositories': {}}, config_file)
         logger.info("Initialization complete.")
     except subprocess.CalledProcessError as e:
         logger.error(f"Error during initialization: {e}")
@@ -211,8 +214,12 @@ def setup_repo_operation(subdir_name=None, fossil_repo=FOSSIL_REPO, config_file=
     """Common setup for repository operations."""
     config = load_config(config_file)
     
+    # Ensure config has repositories section
+    if 'repositories' not in config:
+        config['repositories'] = {}
+    
     # Check if subdir exists in config if provided
-    if subdir_name and subdir_name not in config:
+    if subdir_name and subdir_name not in config.get('repositories', {}):
         logger.error(f"Subdirectory '{subdir_name}' not found in configuration.")
         raise ValueError(f"Subdirectory '{subdir_name}' not found in configuration.")
         
@@ -233,7 +240,7 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
         raise ValueError("Invalid input parameters")
     
     config = setup_repo_operation(fossil_repo=fossil_repo, config_file=config_file)
-    if subdir_name in config:
+    if subdir_name in config.get('repositories', {}):
         logger.error(f"Subdirectory '{subdir_name}' is already imported.")
         raise ValueError(f"Subdirectory '{subdir_name}' is already imported.")
     
@@ -261,7 +268,10 @@ def import_git_repo(git_repo_url, subdir_name, fossil_repo=FOSSIL_REPO, config_f
             export_import_git_to_fossil(subdir_name, git_marks_file, fossil_marks_file, original_cwd / fossil_repo)
         
         # Update configuration
-        config[subdir_name] = {
+        if 'repositories' not in config:
+            config['repositories'] = {}
+            
+        config['repositories'][subdir_name] = {
             'git_repo_url': git_repo_url,
             'git_clone_path': str(git_clone_path),
             'git_marks_file': str(git_marks_file),
@@ -282,9 +292,9 @@ def update_git_repo(subdir_name, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
     config = setup_repo_operation(subdir_name, fossil_repo, config_file)
     
     try:
-        git_clone_path = Path(config[subdir_name]['git_clone_path'])
-        git_marks_file = Path(config[subdir_name]['git_marks_file'])
-        fossil_marks_file = Path(config[subdir_name]['fossil_marks_file'])
+        git_clone_path = Path(config['repositories'][subdir_name]['git_clone_path'])
+        git_marks_file = Path(config['repositories'][subdir_name]['git_marks_file'])
+        fossil_marks_file = Path(config['repositories'][subdir_name]['fossil_marks_file'])
         original_cwd = Path.cwd()
         
         with cd(git_clone_path):
@@ -306,12 +316,14 @@ def update_git_repo(subdir_name, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
 def list_repos(config_file=CONFIG_FILE):
     """List all imported repositories and their details."""
     config = load_config(config_file)
-    if not config:
+    repositories = config.get('repositories', {})
+    
+    if not repositories:
         logger.info("No repositories have been imported.")
         return
     
     logger.info("Imported repositories:")
-    for subdir, details in config.items():
+    for subdir, details in repositories.items():
         logger.info(f"- {subdir}: {details['git_repo_url']}")
         if logger.level == logging.DEBUG:  # More details when in debug mode
             logger.debug(f"  Clone path: {details['git_clone_path']}")
