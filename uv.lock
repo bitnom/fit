@@ -146,7 +146,7 @@ wheels = [
 
 [[package]]
 name = "fitrepo"
-version = "0.1.432"
+version = "0.1.44"
 source = { editable = "." }
 dependencies = [
     { name = "git-filter-repo" },
