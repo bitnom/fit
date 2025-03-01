@@ -284,6 +284,32 @@ def setup_repo_operation(subdir_path=None, fossil_repo=FOSSIL_REPO, config_file=
     return config
 
 # Repository operations
+def setup_git_worktree(git_clone_path, target_dir, norm_path):
+    """Setup a proper Git worktree for the imported subdirectory."""
+    # Create the target directory if it doesn't exist
+    os.makedirs(target_dir, exist_ok=True)
+    
+    # Create a .git file in the target directory that points to the actual Git repo
+    git_link_path = os.path.join(target_dir, '.git')
+    with open(git_link_path, 'w') as f:
+        # Store the gitdir pointing to our actual Git repository
+        f.write(f"gitdir: {os.path.relpath(git_clone_path / '.git', target_dir)}")
+    
+    # Configure Git to treat this directory as a working tree
+    with cd(git_clone_path):
+        # Set the core.worktree to the target directory (relative to the .git directory)
+        run_command(['git', 'config', 'core.worktree', os.path.relpath(target_dir, git_clone_path / '.git')])
+        
+        # Set up sparse checkout to limit visibility to only this directory
+        run_command(['git', 'config', 'core.sparseCheckout', 'true'])
+        
+        # Create sparse-checkout file
+        sparse_checkout_dir = git_clone_path / '.git' / 'info'
+        sparse_checkout_dir.mkdir(exist_ok=True, parents=True)
+        with open(sparse_checkout_dir / 'sparse-checkout', 'w') as f:
+            # Only include files in the specific subdirectory
+            f.write(f"{norm_path}/*\n")
+
 def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, 
                     git_clones_dir=GIT_CLONES_DIR, marks_dir=MARKS_DIR, fossil_args=None):
     """Import a Git repository into the Fossil repository under a subdirectory."""
@@ -306,6 +332,7 @@ def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_f
     git_clone_path = original_cwd / git_clones_dir / sanitized_name
     git_marks_file = original_cwd / marks_dir / f"{sanitized_name}_git.marks"
     fossil_marks_file = original_cwd / marks_dir / f"{sanitized_name}_fossil.marks"
+    target_dir = original_cwd / norm_path
     
     # Clean existing clone directory if needed
     if git_clone_path.exists():
@@ -323,12 +350,16 @@ def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_f
             process_git_repo(git_clone_path, norm_path)
             export_import_git_to_fossil(norm_path, git_marks_file, fossil_marks_file, original_cwd / fossil_repo)
         
+        # Set up Git worktree after Fossil import to properly link the directory
+        setup_git_worktree(git_clone_path, target_dir, norm_path)
+        
         # Update configuration
         config['repositories'][norm_path] = {
             'git_repo_url': git_repo_url,
             'git_clone_path': str(git_clone_path),
             'git_marks_file': str(git_marks_file),
-            'fossil_marks_file': str(fossil_marks_file)
+            'fossil_marks_file': str(fossil_marks_file),
+            'target_dir': str(target_dir)
         }
         save_config(config, config_file)
         
@@ -351,6 +382,7 @@ def update_git_repo(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
         fossil_marks_file = Path(repo_details['fossil_marks_file'])
         git_repo_url = repo_details['git_repo_url']
         original_cwd = Path.cwd()
+        target_dir = original_cwd / norm_path if 'target_dir' not in repo_details else Path(repo_details['target_dir'])
         
         # Clean the existing clone and create a fresh one to avoid git-filter-repo issues
         logger.info(f"Re-cloning Git repository for '{norm_path}'...")
@@ -367,6 +399,14 @@ def update_git_repo(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
             export_import_git_to_fossil(norm_path, git_marks_file, fossil_marks_file, 
                                       original_cwd / fossil_repo, import_marks=True)
         
+        # Re-setup the Git worktree to maintain proper isolation
+        setup_git_worktree(git_clone_path, target_dir, norm_path)
+        
+        # Update config with target_dir if not present
+        if 'target_dir' not in repo_details:
+            repo_details['target_dir'] = str(target_dir)
+            save_config(config, config_file)
+            
         logger.info(f"Successfully updated '{norm_path}' in the Fossil repository.")
     except Exception as e:
         logger.error(f"Error during update: {str(e)}")
