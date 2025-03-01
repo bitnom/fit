@@ -128,4 +128,4 @@ You can import repositories into nested subdirectories:
 uv tool run fitrepo import https://github.com/user/repo.git libs/common
 ```
 
-This will place the repository contents into the `libs/common` subdirectory and prefix branches with `libs__common/`.
+This will clone the repository to `libs/common/repo` subdirectory and prefix branches with `libs/common/repo/`.
