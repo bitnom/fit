@@ -93,7 +93,7 @@ The tool maintains a `fitrepo.json` file to track imported repositories. Example
 
 ## Requirements
 
-- **Python 3.12+**
+- **Python 3.9+**
 - **Git**
 - **git-filter-repo** (automatically installed as a dependency)
 - **Fossil** (installed and accessible from the command line)
