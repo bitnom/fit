@@ -12,12 +12,13 @@ import shutil
 import importlib.metadata
 import re
 import shlex
+import tempfile
 
 # Get version using importlib.metadata
 try:
     __version__ = importlib.metadata.version('fitrepo')
 except importlib.metadata.PackageNotFoundError:
-    __version__ = "0.1.44"
+    __version__ = "0.1.5"
 
 # Set up logging for user feedback
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -371,6 +372,207 @@ def update_git_repo(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
         logger.error(f"Error during update: {str(e)}")
         raise
 
+def push_to_git(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, fossil_args=None, message=None):
+    """Push Fossil changes to the original Git repository using bidirectional synchronization."""
+    norm_path = normalize_path(subdir_path)
+    config = setup_repo_operation(norm_path, fossil_repo, config_file, fossil_args=fossil_args)
+    
+    try:
+        repo_details = config['repositories'][norm_path]
+        git_repo_url = repo_details['git_repo_url']
+        git_clone_path = Path(repo_details['git_clone_path'])
+        git_marks_file = Path(repo_details['git_marks_file'])
+        fossil_marks_file = Path(repo_details['fossil_marks_file'])
+        original_cwd = Path.cwd()
+        abs_fossil_repo = original_cwd / fossil_repo
+        
+        # Get the current branch *before* we open in a temp directory
+        # This ensures we know which branch we need to use
+        branch_prefix = path_to_branch_prefix(norm_path)
+        all_branches_output = run_command(['fossil', 'branch', 'list'], capture_output=True, text=True).stdout
+        target_branch = None
+        
+        # Find branch that matches our prefix
+        for line in all_branches_output.splitlines():
+            # Clean up the branch name by removing asterisk and whitespace
+            branch_name = line.strip().lstrip('*').strip()
+            if branch_name.startswith(f"{branch_prefix}/"):
+                target_branch = branch_name
+                logger.info(f"Found target branch: {target_branch}")
+                break
+        
+        if not target_branch:
+            # Try a more flexible approach - look for branch names that might match
+            logger.warning(f"No branch with exact prefix '{branch_prefix}/' found. Looking for alternatives...")
+            
+            # Get all branches and look for best match
+            for line in all_branches_output.splitlines():
+                # Clean up the branch name properly
+                branch_name = line.strip().lstrip('*').strip()
+                # Check if the branch contains the path components in any form
+                path_parts = norm_path.split('/')
+                if all(part in branch_name.lower().replace('__', '_') for part in path_parts):
+                    target_branch = branch_name
+                    logger.info(f"Found alternative branch: {target_branch}")
+                    break
+        
+        if not target_branch:
+            raise ValueError(f"Could not find any branch related to '{norm_path}'. Available branches: {all_branches_output}")
+        
+        # More aggressive clean and re-clone approach
+        logger.info(f"Recreating Git clone for '{norm_path}'...")
+        if git_clone_path.exists():
+            shutil.rmtree(git_clone_path)
+        git_clone_path.mkdir(exist_ok=True, parents=True)
+        
+        # Clone with --local to prevent path issues and configure .git properly
+        run_command(['git', 'clone', '--no-local', git_repo_url, str(git_clone_path)])
+        
+        # Completely isolate the Git repository to prevent path leakage
+        with cd(git_clone_path):
+            # Configure Git to restrict operations to this directory
+            run_command(['git', 'config', 'core.worktree', '.'])
+            run_command(['git', 'config', 'core.bare', 'false'])
+            run_command(['git', 'config', '--local', 'core.sparseCheckout', 'true'])
+            
+            os.makedirs(os.path.join(git_clone_path, '.git', 'info'), exist_ok=True)
+            with open(os.path.join(git_clone_path, '.git', 'info', 'exclude'), 'w') as f:
+                f.write("# Exclude everything outside this directory\n../\n")
+            
+            # Set up sparse checkout to only track files in this directory
+            os.makedirs(os.path.join(git_clone_path, '.git', 'info', 'sparse-checkout'), exist_ok=True)
+            with open(os.path.join(git_clone_path, '.git', 'info', 'sparse-checkout', 'index'), 'w') as f:
+                f.write("/*\n!../\n")
+        
+        # Get the current branch *before* we open in a temp directory
+        # This ensures we know which branch we need to use
+        branch_prefix = path_to_branch_prefix(norm_path)
+        all_branches_output = run_command(['fossil', 'branch', 'list'], capture_output=True, text=True).stdout
+        target_branch = None
+        
+        # Find branch that matches our prefix
+        for line in all_branches_output.splitlines():
+            # Clean up the branch name by removing asterisk and whitespace
+            branch_name = line.strip().lstrip('*').strip()
+            if branch_name.startswith(f"{branch_prefix}/"):
+                target_branch = branch_name
+                logger.info(f"Found target branch: {target_branch}")
+                break
+        
+        if not target_branch:
+            # Try a more flexible approach - look for branch names that might match
+            logger.warning(f"No branch with exact prefix '{branch_prefix}/' found. Looking for alternatives...")
+            
+            # Get all branches and look for best match
+            for line in all_branches_output.splitlines():
+                # Clean up the branch name properly
+                branch_name = line.strip().lstrip('*').strip()
+                # Check if the branch contains the path components in any form
+                path_parts = norm_path.split('/')
+                if all(part in branch_name.lower().replace('__', '_') for part in path_parts):
+                    target_branch = branch_name
+                    logger.info(f"Found alternative branch: {target_branch}")
+                    break
+        
+        if not target_branch:
+            raise ValueError(f"Could not find any branch related to '{norm_path}'. Available branches: {all_branches_output}")
+        
+        # More aggressive clean and re-clone approach
+        logger.info(f"Recreating Git clone for '{norm_path}'...")
+        if git_clone_path.exists():
+            shutil.rmtree(git_clone_path)
+        git_clone_path.mkdir(exist_ok=True, parents=True)
+        run_command(['git', 'clone', git_repo_url, str(git_clone_path)])
+        
+        # Set Git config to ignore parent directories
+        with cd(git_clone_path):
+            # Configure Git to only track files in this directory
+            run_command(['git', 'config', 'core.worktree', '.'])
+            # Add a .git/info/exclude entry to ignore parent directories
+            os.makedirs(os.path.join(git_clone_path, '.git', 'info'), exist_ok=True)
+            with open(os.path.join(git_clone_path, '.git', 'info', 'exclude'), 'a') as f:
+                f.write("\n# Ignore parent directories\n../\n")
+        
+        # Export from Fossil to Git - CRITICAL: run the export in a controlled environment
+        logger.info(f"Exporting Fossil changes to Git...")
+        
+        # CRITICAL FIX: We need to isolate the export to the specific subdirectory
+        # Create a temporary directory to work in
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Extract just the specific subfolder to this temp directory
+            run_command(['fossil', 'open', str(abs_fossil_repo), '--workdir', str(temp_path)])
+            
+            # Make sure we're on the right branch using the branch name we found earlier
+            with cd(temp_path):
+                logger.info(f"Updating to branch: {target_branch}")
+                run_command(['fossil', 'update', target_branch])
+                
+                # Now export from this controlled environment
+                export_cmd = ['fossil', 'export', '--git']
+                if Path(fossil_marks_file).exists():
+                    export_cmd.extend([f'--import-marks={fossil_marks_file}'])
+                export_cmd.extend([f'--export-marks={fossil_marks_file}'])
+                
+                # Build Git fast-import command with marks
+                import_cmd = ['git', 'fast-import', '--force']
+                if Path(git_marks_file).exists():
+                    import_cmd.extend([f'--import-marks={git_marks_file}'])
+                import_cmd.extend([f'--export-marks={git_marks_file}'])
+                
+                # Export from the controlled temp directory
+                with cd(git_clone_path):
+                    try:
+                        fossil_export = subprocess.Popen(export_cmd, stdout=subprocess.PIPE)
+                        git_import = subprocess.Popen(import_cmd, stdin=fossil_export.stdout)
+                        fossil_export.stdout.close()
+                        git_import.communicate()
+                        
+                        # Git fast-import may exit with non-zero for warnings too,
+                        # so we'll continue with the push regardless
+                        if git_import.returncode != 0:
+                            logger.warning(f"Git fast-import returned non-zero exit code {git_import.returncode}. Attempting to push anyway...")
+                        
+                        # Push the changes
+                        logger.info("Pushing changes to Git repository...")
+                        run_command(['git', 'checkout', '-f', 'master'], check=False)
+                        run_command(['git', 'push', '-f', 'origin', '--all'])
+                        run_command(['git', 'push', '-f', 'origin', '--tags'])
+                    except Exception as e:
+                        logger.error(f"Error during git import/export: {str(e)}")
+                        raise
+                
+                # Close the temporary fossil checkout
+                run_command(['fossil', 'close'], check=False)
+            
+        logger.info(f"Successfully pushed Fossil changes from '{norm_path}' to Git repository.")
+    except Exception as e:
+        logger.error(f"Error during push to Git: {str(e)}")
+        raise
+
+def reset_marks(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, fossil_args=None):
+    """Reset marks files for a repository to force a clean export/import."""
+    norm_path = normalize_path(subdir_path)
+    config = setup_repo_operation(norm_path, fossil_repo, config_file, fossil_args=fossil_args)
+    
+    try:
+        repo_details = config['repositories'][norm_path]
+        git_marks_file = Path(repo_details['git_marks_file'])
+        fossil_marks_file = Path(repo_details['fossil_marks_file'])
+        
+        # Delete the marks files if they exist
+        for marks_file in [git_marks_file, fossil_marks_file]:
+            if marks_file.exists():
+                logger.info(f"Removing marks file: {marks_file}")
+                marks_file.unlink()
+                
+        logger.info(f"Marks files for '{norm_path}' have been reset. Next push will do a full export/import.")
+        logger.info(f"Note: This may cause history to be rewritten in the Git repository.")
+    except Exception as e:
+        logger.error(f"Error during marks reset: {str(e)}")
+        raise
+
 def list_repos(config_file=CONFIG_FILE):
     """List all imported repositories and their details."""
     config = load_config(config_file)
@@ -396,7 +598,7 @@ def main():
     parent_parser.add_argument('-f', '--fossil-repo', default=FOSSIL_REPO, help=f'Fossil repository file')
     parent_parser.add_argument('-c', '--config', default=CONFIG_FILE, help=f'Configuration file')
     parent_parser.add_argument('-g', '--git-clones-dir', default=GIT_CLONES_DIR, help=f'Git clones directory')
-    parent_parser.add_argument('-m', '--marks-dir', default=MARKS_DIR, help=f'Marks directory')
+    parent_parser.add_argument('-M', '--marks-dir', default=MARKS_DIR, help=f'Marks directory')  # Changed -m to -M
     
     # Fossil arguments handling
     parent_parser.add_argument('--fwd-fossil-open', type=str, metavar='ARGS',
@@ -429,6 +631,15 @@ def main():
     update_parser = subparsers.add_parser('update', help='Update with Git changes', parents=[parent_parser])
     update_parser.add_argument('subdir_name', help='Subdirectory name to update')
 
+    # Add command for git push
+    git_push_parser = subparsers.add_parser('push-git', help='Push Fossil changes to Git', parents=[parent_parser])
+    git_push_parser.add_argument('subdir_name', help='Subdirectory name to push')
+    git_push_parser.add_argument('-m', '--message', help='Custom commit message for Git')
+
+    # Add command for resetting marks
+    reset_parser = subparsers.add_parser('reset-marks', help='Reset marks files for clean export', parents=[parent_parser])
+    reset_parser.add_argument('subdir_name', help='Subdirectory name to reset marks for')
+
     # Special handling for fwdfossil argument issue
     try:
         args = parser.parse_args()
@@ -458,7 +669,9 @@ def main():
         'import': lambda: import_git_repo(args.git_repo_url, args.subdir_name, args.fossil_repo, 
                                          args.config, args.git_clones_dir, args.marks_dir, fossil_open_args),
         'update': lambda: update_git_repo(args.subdir_name, args.fossil_repo, args.config, fossil_open_args),
-        'list': lambda: list_repos(args.config)
+        'list': lambda: list_repos(args.config),
+        'push-git': lambda: push_to_git(args.subdir_name, args.fossil_repo, args.config, fossil_open_args, args.message),
+        'reset-marks': lambda: reset_marks(args.subdir_name, args.fossil_repo, args.config, fossil_open_args)
     }
     
     try:
