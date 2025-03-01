@@ -88,13 +88,20 @@ def test_validate_git_url():
 
 def test_validate_subdir_name():
     """Test subdirectory name validation."""
+    # Valid paths
     assert fitrepo.validate_subdir_name("valid_name") is True
     assert fitrepo.validate_subdir_name("valid-name") is True
     assert fitrepo.validate_subdir_name("valid.name") is True
+    assert fitrepo.validate_subdir_name("valid/path") is True
+    assert fitrepo.validate_subdir_name("valid/nested/path") is True
+    
+    # Invalid paths
     assert fitrepo.validate_subdir_name("") is False
     assert fitrepo.validate_subdir_name("/invalid") is False
-    assert fitrepo.validate_subdir_name("invalid/path") is False
+    assert fitrepo.validate_subdir_name("invalid/") is False
     assert fitrepo.validate_subdir_name(".invalid") is False
+    assert fitrepo.validate_subdir_name("invalid/.hidden") is False
+    assert fitrepo.validate_subdir_name("invalid|chars") is False
 
 # Test the new ensure_directories function
 def test_ensure_directories(temp_dir):
@@ -119,9 +126,20 @@ def test_init_fossil_repo(mock_run, temp_dir):
     custom_fossil = "custom.fossil"
     custom_config = "custom.json"
     
+    # Setup mock to simulate that fossil repo is not open yet
+    mock_run.return_value.returncode = 1  # Non-zero returncode means repo not open
+    
     fitrepo.init_fossil_repo(custom_fossil, custom_config)
     
-    mock_run.assert_called_once_with(['fossil', 'init', custom_fossil], check=True)
+    # Verify expected sequence of calls (init, status check, open)
+    expected_calls = [
+        call(['fossil', 'init', custom_fossil], check=True, capture_output=False, text=False),
+        call(['fossil', 'status'], check=False, capture_output=False, text=False),
+        call(['fossil', 'open', custom_fossil], check=True, capture_output=False, text=False)
+    ]
+    
+    # Check that the first 3 calls match our expectations
+    assert mock_run.mock_calls[0:3] == expected_calls
     assert os.path.exists(custom_config)
 
 # Update test_import_command to match new parameter signature

@@ -169,22 +169,25 @@ def branch_prefix_to_path(prefix):
 def validate_subdir_name(name):
     """
     Validate that the subdirectory path is valid.
-    Now allows paths with slashes but checks for other invalid characters.
+    Allows internal slashes for proper subdirectory paths,
+    but rejects leading/trailing slashes and other invalid patterns.
     """
     if not name:
         logger.error("Subdirectory name cannot be empty")
         return False
         
-    # Normalize the path
-    norm_path = normalize_path(name)
-    
-    # Check for invalid patterns
-    if not norm_path or norm_path.startswith('.'):
-        logger.error(f"Invalid subdirectory path: {name}. Must not start with '.'")
+    # Check for leading/trailing slashes
+    if name.startswith('/') or name.endswith('/'):
+        logger.error(f"Invalid subdirectory path: {name}. Must not start or end with '/'")
         return False
         
-    # Check for invalid characters (beyond just slashes)
-    if re.search(r'[<>:"|?*\x00-\x1F]', norm_path):
+    # Check for invalid patterns
+    if any(part.startswith('.') for part in name.split('/')):
+        logger.error(f"Invalid subdirectory path: {name}. Path components must not start with '.'")
+        return False
+        
+    # Check for invalid characters beyond slashes
+    if re.search(r'[<>:"|?*\x00-\x1F]', name):
         logger.error(f"Invalid characters in subdirectory path: {name}")
         return False
         
