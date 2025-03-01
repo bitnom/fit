@@ -543,6 +543,11 @@ def push_to_git(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, f
                     run_command(['git', 'push', '-f', 'origin', '--tags'])
 
         logger.info(f"Successfully pushed Fossil changes from '{norm_path}' to Git repository.")
+        
+        # Automatically fix Git status after pushing
+        logger.info(f"Fixing Git status for '{norm_path}' to hide untracked files...")
+        fix_git_status(subdir_path, fossil_repo, config_file, fossil_args)
+        
     except Exception as e:
         logger.error(f"Error during push to Git: {str(e)}")
         raise
