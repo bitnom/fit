@@ -203,7 +203,18 @@ def process_git_repo(git_clone_path, subdir_path, force=False):
     # Rename each branch that doesn't already have the prefix
     for branch in branches:
         if branch and not branch.startswith(f"{branch_prefix}/"):
-            run_command(['git', 'branch', '-m', branch, f"{branch_prefix}/{branch}"])
+            try:
+                # Check if target branch already exists
+                if run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{branch_prefix}/{branch}'], check=False).returncode == 0:
+                    logger.info(f"Branch '{branch_prefix}/{branch}' already exists, skipping rename")
+                    # Since we can't have two branches with the same name, delete the current one
+                    # The existing prefixed one already has all our changes
+                    run_command(['git', 'branch', '-D', branch])
+                else:
+                    # Safe to rename
+                    run_command(['git', 'branch', '-m', branch, f"{branch_prefix}/{branch}"])
+            except subprocess.CalledProcessError:
+                logger.warning(f"Failed to rename branch '{branch}'")
 
 def export_import_git_to_fossil(subdir_path, git_marks_file, fossil_marks_file, fossil_repo, import_marks=False):
     """Export from Git and import into Fossil with appropriate marks files."""
@@ -337,13 +348,19 @@ def update_git_repo(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
         git_clone_path = Path(repo_details['git_clone_path'])
         git_marks_file = Path(repo_details['git_marks_file'])
         fossil_marks_file = Path(repo_details['fossil_marks_file'])
+        git_repo_url = repo_details['git_repo_url']
         original_cwd = Path.cwd()
         
+        # Clean the existing clone and create a fresh one to avoid git-filter-repo issues
+        logger.info(f"Re-cloning Git repository for '{norm_path}'...")
+        if git_clone_path.exists():
+            shutil.rmtree(git_clone_path)
+        git_clone_path.mkdir(exist_ok=True, parents=True)
+        
+        # Clone the Git repository
+        run_command(['git', 'clone', '--no-local', git_repo_url, str(git_clone_path)])
+        
         with cd(git_clone_path):
-            # Pull latest changes and update Fossil
-            logger.info(f"Pulling latest changes for '{norm_path}'...")
-            run_command(['git', 'pull'])
-            
             # Process Git repo and update Fossil
             process_git_repo(git_clone_path, norm_path, force=True)
             export_import_git_to_fossil(norm_path, git_marks_file, fossil_marks_file, 
