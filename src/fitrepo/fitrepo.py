@@ -337,12 +337,38 @@ def update_git_repo(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
         git_clone_path = Path(repo_details['git_clone_path'])
         git_marks_file = Path(repo_details['git_marks_file'])
         fossil_marks_file = Path(repo_details['fossil_marks_file'])
+        git_repo_url = repo_details['git_repo_url']
         original_cwd = Path.cwd()
         
         with cd(git_clone_path):
-            # Pull latest changes and update Fossil
-            logger.info(f"Pulling latest changes for '{norm_path}'...")
-            run_command(['git', 'pull'])
+            # Re-establish remote connection before pulling
+            logger.info(f"Setting up remote for '{norm_path}'...")
+            run_command(['git', 'remote', 'remove', 'origin'], check=False)
+            run_command(['git', 'remote', 'add', 'origin', git_repo_url])
+            
+            # Get default branch from remote
+            logger.info(f"Fetching latest changes for '{norm_path}'...")
+            run_command(['git', 'fetch', 'origin'])
+            
+            # List remote branches and checkout each one
+            result = run_command(['git', 'branch', '-r'], capture_output=True, text=True)
+            remote_branches = [b.strip().replace('origin/', '') for b in result.stdout.splitlines() 
+                              if b.strip() and 'origin/' in b and 'HEAD' not in b]
+            
+            # Check out each branch and reset it to match the remote
+            for branch in remote_branches:
+                branch_exists = run_command(['git', 'rev-parse', '--verify', '--quiet', branch], 
+                                          check=False).returncode == 0
+                
+                if branch_exists:
+                    run_command(['git', 'checkout', branch])
+                    run_command(['git', 'reset', '--hard', f'origin/{branch}'])
+                else:
+                    run_command(['git', 'checkout', '-b', branch, f'origin/{branch}'])
+            
+            # Checkout the default branch (usually master or main)
+            default_branch = 'master' if 'master' in remote_branches else remote_branches[0]
+            run_command(['git', 'checkout', default_branch])
             
             # Process Git repo and update Fossil
             process_git_repo(git_clone_path, norm_path, force=True)
