@@ -203,7 +203,18 @@ def process_git_repo(git_clone_path, subdir_path, force=False):
     # Rename each branch that doesn't already have the prefix
     for branch in branches:
         if branch and not branch.startswith(f"{branch_prefix}/"):
-            run_command(['git', 'branch', '-m', branch, f"{branch_prefix}/{branch}"])
+            try:
+                # Check if target branch already exists
+                if run_command(['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{branch_prefix}/{branch}'], check=False).returncode == 0:
+                    logger.info(f"Branch '{branch_prefix}/{branch}' already exists, skipping rename")
+                    # Since we can't have two branches with the same name, delete the current one
+                    # The existing prefixed one already has all our changes
+                    run_command(['git', 'branch', '-D', branch])
+                else:
+                    # Safe to rename
+                    run_command(['git', 'branch', '-m', branch, f"{branch_prefix}/{branch}"])
+            except subprocess.CalledProcessError:
+                logger.warning(f"Failed to rename branch '{branch}'")
 
 def export_import_git_to_fossil(subdir_path, git_marks_file, fossil_marks_file, fossil_repo, import_marks=False):
     """Export from Git and import into Fossil with appropriate marks files."""
@@ -340,36 +351,16 @@ def update_git_repo(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FIL
         git_repo_url = repo_details['git_repo_url']
         original_cwd = Path.cwd()
         
+        # Clean the existing clone and create a fresh one to avoid git-filter-repo issues
+        logger.info(f"Re-cloning Git repository for '{norm_path}'...")
+        if git_clone_path.exists():
+            shutil.rmtree(git_clone_path)
+        git_clone_path.mkdir(exist_ok=True, parents=True)
+        
+        # Clone the Git repository
+        run_command(['git', 'clone', '--no-local', git_repo_url, str(git_clone_path)])
+        
         with cd(git_clone_path):
-            # Re-establish remote connection before pulling
-            logger.info(f"Setting up remote for '{norm_path}'...")
-            run_command(['git', 'remote', 'remove', 'origin'], check=False)
-            run_command(['git', 'remote', 'add', 'origin', git_repo_url])
-            
-            # Get default branch from remote
-            logger.info(f"Fetching latest changes for '{norm_path}'...")
-            run_command(['git', 'fetch', 'origin'])
-            
-            # List remote branches and checkout each one
-            result = run_command(['git', 'branch', '-r'], capture_output=True, text=True)
-            remote_branches = [b.strip().replace('origin/', '') for b in result.stdout.splitlines() 
-                              if b.strip() and 'origin/' in b and 'HEAD' not in b]
-            
-            # Check out each branch and reset it to match the remote
-            for branch in remote_branches:
-                branch_exists = run_command(['git', 'rev-parse', '--verify', '--quiet', branch], 
-                                          check=False).returncode == 0
-                
-                if branch_exists:
-                    run_command(['git', 'checkout', branch])
-                    run_command(['git', 'reset', '--hard', f'origin/{branch}'])
-                else:
-                    run_command(['git', 'checkout', '-b', branch, f'origin/{branch}'])
-            
-            # Checkout the default branch (usually master or main)
-            default_branch = 'master' if 'master' in remote_branches else remote_branches[0]
-            run_command(['git', 'checkout', default_branch])
-            
             # Process Git repo and update Fossil
             process_git_repo(git_clone_path, norm_path, force=True)
             export_import_git_to_fossil(norm_path, git_marks_file, fossil_marks_file, 
