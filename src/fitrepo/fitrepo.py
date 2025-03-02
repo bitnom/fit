@@ -18,7 +18,7 @@ import tempfile
 try:
     __version__ = importlib.metadata.version('fitrepo')
 except importlib.metadata.PackageNotFoundError:
-    __version__ = "0.1.5"
+    __version__ = "0.1.52"
 
 # Set up logging for user feedback
 logging.basicConfig(level=logging.INFO, format='%(message)s')
