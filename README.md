@@ -21,8 +21,9 @@ Run the script from the directory where you want the Fossil repository (`fitrepo
    ```
    - Creates `fitrepo.fossil` if it doesn't exist.
    - Creates an empty `fitrepo.json` configuration file if it doesn't exist.
+   - Automatically creates `.vscode/settings.json` with optimized VSCode settings.
    - Supports: `-v/--verbose`, `-f/--fossil-repo`, `-c/--config`, `-g/--git-clones-dir`, `-m/--marks-dir`, 
-     `--fwd-fossil-open`, `--fwd-fossil-init`, `--fwdfossil`
+     `--fwd-fossil-open`, `--fwd-fossil-init`, `--fwdfossil`, `--novscode`
 
 2. **Import a Git Repository**
    ```bash
@@ -31,7 +32,8 @@ Run the script from the directory where you want the Fossil repository (`fitrepo
    - Example: `uv tool run fitrepo import https://github.com/user/subrepo.git subrepo`
    - Clones the Git repository, moves its files into the `subrepo` subdirectory, prefixes its branches (e.g., `subrepo/master`), and imports it into the Fossil repository.
    - Stores configuration details in `fitrepo.json`.
-   - Supports the same options as the `init` command.
+   - Supports: `-v/--verbose`, `-f/--fossil-repo`, `-c/--config`, `-g/--git-clones-dir`, `-m/--marks-dir`, 
+     `--fwd-fossil-open`, `--fwd-fossil-init`, `--fwdfossil`
 
 3. **Update an Existing Git Repository**
    ```bash
@@ -155,6 +157,23 @@ uv tool run fitrepo import https://github.com/user/repo.git libs/common
 ```
 
 This will clone the repository to `libs/common/repo` subdirectory and prefix branches with `libs/common/repo/`.
+
+### VSCode Integration
+
+When initializing a repository with `fitrepo init`, the tool automatically creates a `.vscode/settings.json` file with optimized settings for working with the monorepo:
+
+- Hides duplicate Git repositories from the Source Control panel
+- Excludes `.fitrepo` directory and its contents from the file explorer
+- Excludes `.fitrepo` content from search results
+
+These settings help provide a cleaner interface when working with the monorepo in VSCode. If you prefer to manage your own VSCode settings, you can use the `--novscode` flag during initialization:
+
+```bash
+# Skip VSCode settings during initialization
+uv tool run fitrepo init --novscode
+```
+
+If a `.vscode/settings.json` file already exists, fitrepo will merge its settings rather than overwriting the file.
 
 ### Example Workflow
 

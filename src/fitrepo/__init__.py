@@ -1,3 +1,16 @@
+"""
+Fitrepo - Fossil Import Tool
+
+A tool for managing Git repositories within a Fossil monorepo.
+"""
+
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("fitrepo")
+except PackageNotFoundError:
+    __version__ = "0.1.53"  # fallback version
+
 # Import main function directly, making it accessible as fitrepo.main
 from .fitrepo import main, __version__
 

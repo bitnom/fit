@@ -422,14 +422,21 @@ def setup_git_worktree(git_clone_path, target_dir, norm_path):
             # Also include original path pattern for compatibility
             f.write(f"{norm_path}/*\n")
         
-        # Fix index if needed
-        run_command(['git', 'read-tree', '-m', '-u', 'HEAD'], check=False)
+        # Reset the index to match HEAD
+        run_command(['git', 'reset', '--mixed'], check=False)
+        
+        # Fix index if needed with a forced checkout
+        run_command(['git', 'checkout', '-f', '--', '.'], check=False)
+        
+        # Force index update to recognize all files
+        run_command(['git', 'add', '-A', '.'], check=False)
+        run_command(['git', 'reset', '--mixed'], check=False)
 
     # Also configure the status setting in the target directory itself
     with cd(target_dir_abs):
         run_command(['git', 'config', '--local', 'status.showUntrackedFiles', 'no'], check=False)
-        # Refresh working tree
-        run_command(['git', 'checkout', '--', '.'], check=False)
+        # Refresh working tree with a forced checkout
+        run_command(['git', 'checkout', '-f', '--', '.'], check=False)
 
 def post_worktree_setup(git_clone_path, target_dir):
     """Additional setup to ensure the worktree is properly maintained."""
@@ -720,33 +727,69 @@ def fix_git_status(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE
         with open(git_link_path, 'w') as f:
             f.write(f"gitdir: {git_dir_abs}")
         
-        # First, configure the git repo
+        # Configure basic git settings
         with cd(git_clone_path_abs):
             # Set the core.worktree to the absolute target directory path
             run_command(['git', 'config', 'core.worktree', target_dir_abs])
             run_command(['git', 'config', 'status.showUntrackedFiles', 'no'])
+        
+        # Try the direct approach - run the fix function inline
+        logger.info(f"Using advanced Git index fix for '{norm_path}'...")
+        
+        # Step 1: Configure Git to prevent showing untracked files
+        with cd(target_dir_abs):
+            run_command(['git', 'config', 'core.untrackedCache', 'false'], check=False)
+            run_command(['git', 'config', 'status.showUntrackedFiles', 'no'], check=False)
             
-            # Set up sparse checkout if not already configured
+            # Step 2: Create magical sequence to force git to recognize all files
+            # First, add all files to git index
+            logger.info("Indexing all files...")
+            run_command(['git', 'add', '--force', '.'], check=False)
+            
+            # Then, reset (but keep the files in the index)
+            logger.info("Resetting staging area (keeping files in index)...")
+            run_command(['git', 'reset'], check=False)
+            
+            # Get list of all files in the directory
+            logger.info("Registering files with Git index...")
+            file_list = subprocess.check_output(['find', '.', '-type', 'f', 
+                                              '-not', '-path', './.git*'], 
+                                              text=True).splitlines()
+            
+            # Filter out common exclusions
+            file_list = [f for f in file_list if not (
+                f.endswith('.swp') or 
+                f.endswith('~') or 
+                '/.git/' in f or 
+                '/__pycache__/' in f
+            )]
+            
+            # Process files in batches to avoid command line length limits
+            batch_size = 100
+            for i in range(0, len(file_list), batch_size):
+                batch = file_list[i:i+batch_size]
+                try:
+                    # Use update-index to directly force Git to recognize these files
+                    update_cmd = ['git', 'update-index', '--add', '--'] + batch
+                    run_command(update_cmd, check=False)
+                except Exception as e:
+                    logger.warning(f"Error updating index batch {i//batch_size}: {e}")
+        
+        # Also fix the sparse checkout settings in the git clone path
+        with cd(git_clone_path_abs):
             sparse_checkout_dir = os.path.join(git_dir_abs, 'info')
             os.makedirs(sparse_checkout_dir, exist_ok=True)
             sparse_checkout_file = os.path.join(sparse_checkout_dir, 'sparse-checkout')
             
-            # Update the sparse checkout pattern
+            # Write a more permissive sparse checkout pattern
             with open(sparse_checkout_file, 'w') as f:
-                f.write("/*\n")  # Include all files at root of target dir
-                f.write("!/*/\n")  # Exclude other directories at the same level
-                f.write(f"{norm_path}/*\n")  # Also include original path pattern
-                
-            run_command(['git', 'config', 'core.sparseCheckout', 'true'])
+                f.write("/*\n")  # Match everything at the root level
             
-            # Refresh the index
-            run_command(['git', 'read-tree', '-m', '-u', 'HEAD'], check=False)
-        
-        # Second, configure the target directory's git settings
-        with cd(target_dir_abs):
-            run_command(['git', 'config', '--local', 'status.showUntrackedFiles', 'no'], check=False)
-            # Refresh working tree
-            run_command(['git', 'checkout', '--', '.'], check=False)
+            # Enable sparse checkout
+            run_command(['git', 'config', 'core.sparseCheckout', 'true'], check=False)
+            
+            # Force Git to update the working tree with our new sparse-checkout settings
+            run_command(['git', 'read-tree', '-mu', 'HEAD'], check=False)
             
         logger.info(f"Fixed Git status display for '{norm_path}'. Run 'git status' to verify.")
     except Exception as e:
