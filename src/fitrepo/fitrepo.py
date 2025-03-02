@@ -317,7 +317,11 @@ def setup_git_worktree(git_clone_path, target_dir, norm_path):
         
         # Write the sparse checkout configuration
         with open(os.path.join(sparse_checkout_dir, 'sparse-checkout'), 'w') as f:
-            # Only show files in the specific subdirectory
+            # Include all files at root of target dir
+            f.write("/*\n")
+            # Exclude other directories at the same level
+            f.write("!/*/\n")
+            # Also include original path pattern for compatibility
             f.write(f"{norm_path}/*\n")
         
         # Fix index if needed
@@ -326,6 +330,8 @@ def setup_git_worktree(git_clone_path, target_dir, norm_path):
     # Also configure the status setting in the target directory itself
     with cd(target_dir_abs):
         run_command(['git', 'config', '--local', 'status.showUntrackedFiles', 'no'], check=False)
+        # Refresh working tree
+        run_command(['git', 'checkout', '--', '.'], check=False)
 
 def post_worktree_setup(git_clone_path, target_dir):
     """Additional setup to ensure the worktree is properly maintained."""
@@ -356,7 +362,6 @@ def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_f
     
     # Use sanitized subdirectory name for file/directory names
     sanitized_name = norm_path.replace('/', '_')
-    
     original_cwd = Path.cwd()
     git_clone_path = original_cwd / git_clones_dir / sanitized_name
     git_marks_file = original_cwd / marks_dir / f"{sanitized_name}_git.marks"
@@ -535,13 +540,13 @@ def push_to_git(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, f
                     # so we'll continue with the push regardless
                     if git_import.returncode != 0:
                         logger.warning(f"Git fast-import returned non-zero exit code {git_import.returncode}. Attempting to push anyway...")
-            
+                    
                     # Push the changes - moved inside the git directory context
                     logger.info("Pushing changes to Git repository...")
                     run_command(['git', 'checkout', '-f', 'master'], check=False)
                     run_command(['git', 'push', '-f', 'origin', '--all'])
                     run_command(['git', 'push', '-f', 'origin', '--tags'])
-
+        
         logger.info(f"Successfully pushed Fossil changes from '{norm_path}' to Git repository.")
         
         # Automatically fix Git status after pushing
@@ -623,14 +628,23 @@ def fix_git_status(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE
             sparse_checkout_dir = os.path.join(git_dir_abs, 'info')
             os.makedirs(sparse_checkout_dir, exist_ok=True)
             sparse_checkout_file = os.path.join(sparse_checkout_dir, 'sparse-checkout')
-            if not os.path.exists(sparse_checkout_file):
-                run_command(['git', 'config', 'core.sparseCheckout', 'true'])
-                with open(sparse_checkout_file, 'w') as f:
-                    f.write(f"{norm_path}/*\n")
+            
+            # Update the sparse checkout pattern
+            with open(sparse_checkout_file, 'w') as f:
+                f.write("/*\n")  # Include all files at root of target dir
+                f.write("!/*/\n")  # Exclude other directories at the same level
+                f.write(f"{norm_path}/*\n")  # Also include original path pattern
+                
+            run_command(['git', 'config', 'core.sparseCheckout', 'true'])
+            
+            # Refresh the index
+            run_command(['git', 'read-tree', '-m', '-u', 'HEAD'], check=False)
         
         # Second, configure the target directory's git settings
         with cd(target_dir_abs):
             run_command(['git', 'config', '--local', 'status.showUntrackedFiles', 'no'], check=False)
+            # Refresh working tree
+            run_command(['git', 'checkout', '--', '.'], check=False)
             
         logger.info(f"Fixed Git status display for '{norm_path}'. Run 'git status' to verify.")
     except Exception as e:
@@ -646,8 +660,6 @@ def main():
     parent_parser.add_argument('-c', '--config', default=CONFIG_FILE, help=f'Configuration file')
     parent_parser.add_argument('-g', '--git-clones-dir', default=GIT_CLONES_DIR, help=f'Git clones directory')
     parent_parser.add_argument('-M', '--marks-dir', default=MARKS_DIR, help=f'Marks directory')  # Changed -m to -M
-    
-    # Fossil arguments handling
     parent_parser.add_argument('--fwd-fossil-open', type=str, metavar='ARGS',
                                help='Forward arguments to fossil open command')
     parent_parser.add_argument('--fwd-fossil-init', type=str, metavar='ARGS',
@@ -690,7 +702,7 @@ def main():
     # Add command for fixing git status
     fix_status_parser = subparsers.add_parser('fix-git-status', help='Fix Git status display', parents=[parent_parser])
     fix_status_parser.add_argument('subdir_name', help='Subdirectory name to fix')
-
+    
     # Special handling for fwdfossil argument issue
     try:
         args = parser.parse_args()
@@ -705,7 +717,7 @@ def main():
     if args.verbose:
         logger.setLevel(logging.DEBUG)
         logger.debug("Verbose mode enabled")
-
+    
     # Parse fossil arguments
     fossil_args = shlex.split(args.fwdfossil) if args.fwdfossil else []
     fossil_open_args = shlex.split(args.fwd_fossil_open) if args.fwd_fossil_open else fossil_args
@@ -717,10 +729,10 @@ def main():
     # Command dispatch
     commands = {
         'init': lambda: init_fossil_repo(args.fossil_repo, args.config, fossil_open_args, fossil_init_args),
+        'list': lambda: list_repos(args.config),
         'import': lambda: import_git_repo(args.git_repo_url, args.subdir_name, args.fossil_repo, 
                                          args.config, args.git_clones_dir, args.marks_dir, fossil_open_args),
         'update': lambda: update_git_repo(args.subdir_name, args.fossil_repo, args.config, fossil_open_args),
-        'list': lambda: list_repos(args.config),
         'push-git': lambda: push_to_git(args.subdir_name, args.fossil_repo, args.config, fossil_open_args, args.message),
         'reset-marks': lambda: reset_marks(args.subdir_name, args.fossil_repo, args.config, fossil_open_args),
         'fix-git-status': lambda: fix_git_status(args.subdir_name, args.fossil_repo, args.config, fossil_open_args)
