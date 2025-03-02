@@ -18,7 +18,7 @@ import tempfile
 try:
     __version__ = importlib.metadata.version('fitrepo')
 except importlib.metadata.PackageNotFoundError:
-    __version__ = "0.1.52"
+    __version__ = "0.1.53"
 
 # Set up logging for user feedback
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -100,7 +100,101 @@ def is_fossil_repo_open():
     except:
         return False
 
-def init_fossil_repo(fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, fossil_open_args=None, fossil_init_args=None):
+def get_workspace_file():
+    """Find the .code-workspace file in the .vscode directory, if it exists."""
+    vscode_dir = Path('.vscode')
+    if not vscode_dir.exists():
+        return None
+    
+    workspace_files = list(vscode_dir.glob('*.code-workspace'))
+    if not workspace_files:
+        return None
+    
+    # Return the first workspace file found (normally there should be only one)
+    return workspace_files[0]
+
+def add_to_workspace(subdir_path, no_vscode=False):
+    """Add a subdirectory to the VSCode workspace file."""
+    if no_vscode:
+        return False
+    
+    # Find workspace file
+    workspace_file = get_workspace_file()
+    if not workspace_file:
+        return False
+    
+    # Load workspace configuration
+    try:
+        with open(workspace_file, 'r') as f:
+            workspace_config = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        logger.warning(f"Could not read workspace file: {workspace_file}")
+        return False
+    
+    # Ensure the folders section exists
+    workspace_config.setdefault('folders', [])
+    
+    # Create the new folder entry
+    norm_path = normalize_path(subdir_path)
+    new_folder = {"path": norm_path}
+    
+    # Check if folder is already in workspace
+    for folder in workspace_config['folders']:
+        if folder.get('path') == norm_path:
+            logger.debug(f"Folder {norm_path} already exists in workspace")
+            return True
+    
+    # Add the new folder to workspace
+    workspace_config['folders'].append(new_folder)
+    
+    # Save updated workspace file
+    try:
+        with open(workspace_file, 'w') as f:
+            json.dump(workspace_config, f, indent=4)
+        logger.info(f"Added {norm_path} to workspace file: {workspace_file}")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to update workspace file: {e}")
+        return False
+
+def create_vscode_settings():
+    """Create .vscode/<name>.code-workspace file with settings for fitrepo."""
+    vscode_dir = Path('.vscode')
+    vscode_dir.mkdir(exist_ok=True)
+    
+    # Get project name from config or use directory name
+    try:
+        config = load_config()
+        project_name = config.get('name', Path.cwd().name)
+    except:
+        project_name = Path.cwd().name
+    
+    # Create workspace file with project name
+    workspace_file = vscode_dir / f"{project_name}.code-workspace"
+    
+    workspace_config = {
+        "folders": [],
+        "settings": {
+            "git.ignoredRepositories": [
+                ".fitrepo/git_clones/**"
+            ],
+            "files.exclude": {
+                ".fitrepo": True,
+                ".fitrepo/**": True
+            },
+            "search.exclude": {
+                ".fitrepo/**": True
+            }
+        }
+    }
+    
+    # Write settings to file with appropriate formatting
+    with open(workspace_file, 'w') as f:
+        json.dump(workspace_config, f, indent=4)
+    
+    logger.info(f"Created VSCode workspace file: {workspace_file}")
+
+def init_fossil_repo(fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, fossil_open_args=None, fossil_init_args=None, no_vscode=False):
     """Initialize the Fossil repository and configuration file."""
     try:
         repo_path = Path(fossil_repo)
@@ -123,6 +217,10 @@ def init_fossil_repo(fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, fossil_op
             logger.info(f"Creating configuration file {config_file}...")
             # Use directory name as project name
             save_config({'name': Path.cwd().name, 'repositories': {}}, config_file)
+        
+        # Create VSCode settings file unless no_vscode flag is set
+        if not no_vscode:
+            create_vscode_settings()
             
         logger.info("Initialization complete.")
     except subprocess.CalledProcessError as e:
@@ -347,7 +445,7 @@ def post_worktree_setup(git_clone_path, target_dir):
     os.chmod(post_checkout_hook, 0o755)
 
 def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE, 
-                    git_clones_dir=GIT_CLONES_DIR, marks_dir=MARKS_DIR, fossil_args=None):
+                    git_clones_dir=GIT_CLONES_DIR, marks_dir=MARKS_DIR, fossil_args=None, no_vscode=False):
     """Import a Git repository into the Fossil repository under a subdirectory."""
     if not validate_git_url(git_repo_url) or not validate_subdir_name(subdir_path):
         raise ValueError("Invalid input parameters")
@@ -400,6 +498,10 @@ def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_f
         
         # Update checkout and report success
         update_fossil_checkout(norm_path)
+        
+        # Add to VSCode workspace if applicable
+        add_to_workspace(norm_path, no_vscode)
+        
         logger.info(f"Successfully imported '{git_repo_url}' into subdirectory '{norm_path}'.")
     except Exception as e:
         logger.error(f"Error during import: {str(e)}")
@@ -680,12 +782,15 @@ def main():
     subparsers = parser.add_subparsers(dest='command', required=True, help='Available commands')
     
     # Command definitions
-    subparsers.add_parser('init', help='Initialize repository and config', parents=[parent_parser])
+    init_parser = subparsers.add_parser('init', help='Initialize repository and config', parents=[parent_parser])
+    init_parser.add_argument('--novscode', action='store_true', help='Do not create VSCode settings file')
+    
     subparsers.add_parser('list', help='List imported repositories', parents=[parent_parser])
     
     import_parser = subparsers.add_parser('import', help='Import Git repository', parents=[parent_parser])
     import_parser.add_argument('git_repo_url', help='URL of Git repository to import')
     import_parser.add_argument('subdir_name', help='Subdirectory name for import')
+    import_parser.add_argument('--novscode', action='store_true', help='Do not update VSCode workspace file')
     
     update_parser = subparsers.add_parser('update', help='Update with Git changes', parents=[parent_parser])
     update_parser.add_argument('subdir_name', help='Subdirectory name to update')
@@ -728,10 +833,10 @@ def main():
 
     # Command dispatch
     commands = {
-        'init': lambda: init_fossil_repo(args.fossil_repo, args.config, fossil_open_args, fossil_init_args),
+        'init': lambda: init_fossil_repo(args.fossil_repo, args.config, fossil_open_args, fossil_init_args, args.novscode),
         'list': lambda: list_repos(args.config),
         'import': lambda: import_git_repo(args.git_repo_url, args.subdir_name, args.fossil_repo, 
-                                         args.config, args.git_clones_dir, args.marks_dir, fossil_open_args),
+                                         args.config, args.git_clones_dir, args.marks_dir, fossil_open_args, args.novscode),
         'update': lambda: update_git_repo(args.subdir_name, args.fossil_repo, args.config, fossil_open_args),
         'push-git': lambda: push_to_git(args.subdir_name, args.fossil_repo, args.config, fossil_open_args, args.message),
         'reset-marks': lambda: reset_marks(args.subdir_name, args.fossil_repo, args.config, fossil_open_args),
