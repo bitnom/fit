@@ -83,11 +83,25 @@ def fix_git_tracking_issues(target_dir):
     # Step 4: Force-recognize all files using update-index with specific handling for .gitignore
     logger.info("Registering all files individually with Git index...")
     
-    # First handle .gitignore separately
+    # First handle .gitignore separately with multiple approaches to ensure it works
     gitignore_path = target_path / '.gitignore'
     if gitignore_path.exists():
         logger.info("Special handling for .gitignore file...")
-        run_command(['git', 'update-index', '--add', '.gitignore'], cwd=target_path)
+        # Try multiple methods to force Git to track .gitignore
+        run_command(['git', 'update-index', '--add', '.gitignore'], cwd=target_path, check=False)
+        run_command(['git', 'add', '--force', '.gitignore'], cwd=target_path, check=False)
+        
+        # If .gitignore is still untracked, try a more aggressive approach
+        status = run_command(['git', 'status', '-s', '.gitignore'], cwd=target_path, 
+                          capture_output=True, text=True, check=False)
+        if '?? .gitignore' in status.stdout:
+            logger.info("Trying advanced .gitignore fix...")
+            # Temporarily disable sparse checkout completely
+            run_command(['git', 'config', 'core.sparseCheckout', 'false'], cwd=target_path)
+            run_command(['git', 'add', '--force', '.gitignore'], cwd=target_path, check=False)
+            run_command(['git', 'reset'], cwd=target_path)
+            # Re-enable sparse checkout
+            run_command(['git', 'config', 'core.sparseCheckout', 'true'], cwd=target_path)
     
     # Find all files and update the index in batches
     find_cmd = ['find', '.', '-type', 'f', 
