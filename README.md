@@ -49,6 +49,31 @@ Run the script from the directory where you want the Fossil repository (`fitrepo
    - Shows the subdirectory name and Git repository URL for each imported repository.
    - In verbose mode, shows additional details like clone path and marks files.
 
+5. **Push Changes to Git Repository**
+   ```bash
+   uv tool run fitrepo push-git <subdir-name>
+   ```
+   - Example: `uv tool run fitrepo push-git subrepo`
+   - Pushes the changes from the Fossil repository back to the associated Git repository.
+   - Supports the same options as the `init` command.
+   - Optional `-m/--message` parameter to specify a custom commit message.
+
+6. **Reset Marks Files**
+   ```bash
+   uv tool run fitrepo reset-marks <subdir-name>
+   ```
+   - Example: `uv tool run fitrepo reset-marks subrepo`
+   - Deletes the marks files for the specified repository, forcing a complete re-export on the next operation.
+   - Useful when synchronization between Git and Fossil repositories becomes inconsistent.
+
+7. **Fix Git Status Display**
+   ```bash
+   uv tool run fitrepo fix-git-status <subdir-name>
+   ```
+   - Example: `uv tool run fitrepo fix-git-status subrepo`
+   - Fixes the Git configuration to properly hide untracked files and focus only on the relevant subdirectory.
+   - Helpful when Git status shows files outside the subdirectory or internal Git files.
+
 ### Command-line Options
 
 The tool supports several global options that can be used with any command:
@@ -57,7 +82,7 @@ The tool supports several global options that can be used with any command:
 - `-f/--fossil-repo FILE`: Specify a custom Fossil repository file (default: `fitrepo.fossil`).
 - `-c/--config FILE`: Specify a custom configuration file (default: `fitrepo.json`).
 - `-g/--git-clones-dir DIR`: Specify a custom Git clones directory (default: `.fitrepo/git_clones`).
-- `-m/--marks-dir DIR`: Specify a custom marks directory (default: `.fitrepo/marks`).
+- `-M/--marks-dir DIR`: Specify a custom marks directory (default: `.fitrepo/marks`).
 - `--fwd-fossil-open ARGS`: Forward arguments to the `fossil open` command.
 - `--fwd-fossil-init ARGS`: Forward arguments to the `fossil init` command.
 - `--fwdfossil ARGS`: Forward arguments to all fossil commands (deprecated).
@@ -105,6 +130,7 @@ The tool maintains a `fitrepo.json` file to track imported repositories. Example
 - Only branches are prefixed; tags retain their original names.
 - Use `-v/--verbose` for detailed output during operations.
 - When specifying arguments with `--fwdfossil` that begin with a dash, use the equals sign format to avoid shell interpretation issues (e.g., `--fwdfossil="-f"`).
+- After installation, you can use either `fit`, `fitrepo`, or `fossil-import-tool` commands directly instead of `uv tool run fitrepo`.
 
 ## Advanced Usage
 
@@ -129,3 +155,77 @@ uv tool run fitrepo import https://github.com/user/repo.git libs/common
 ```
 
 This will clone the repository to `libs/common/repo` subdirectory and prefix branches with `libs/common/repo/`.
+
+### Example Workflow
+
+1. Initialize the monorepo:
+   ```bash
+   uv tool run fitrepo init
+   ```
+
+2. Import a Git repository:
+   ```bash
+   uv tool run fitrepo import https://github.com/user/repo.git subrepo
+   ```
+
+3. Update the Git repository from remote:
+   ```bash
+   uv tool run fitrepo update subrepo
+   ```
+
+4. Make changes and commit them with Fossil:
+   ```bash
+   cd subrepo
+   echo "# New feature documentation" >> README.md
+   fossil add README.md
+   fossil commit -m "Update documentation for new feature"
+   cd ..
+   ```
+
+5. Push changes back to the Git repository:
+   ```bash
+   uv tool run fitrepo push-git subrepo
+   ```
+
+## Troubleshooting
+
+### Git Repository Visibility Issues
+
+If you encounter issues where `git status` in an imported subdirectory shows files outside of that subdirectory or shows Git internal files (like "HEAD", "config", "hooks/"):
+
+1. Use the fix-git-status command to repair the Git worktree configuration:
+   ```bash
+   uv tool run fitrepo fix-git-status <subdir-name>
+   ```
+
+2. If the problem persists, you can manually hide untracked files:
+   ```bash
+   cd <subdir-name>
+   git config --local status.showUntrackedFiles no
+   ```
+
+3. For repositories that were imported with older versions of fitrepo, you may need to re-import the repository.
+
+### "Would fork. 'update' first or use --branch or --allow-fork"
+
+If you see this error when committing in Fossil, it means there are new changes in the upstream repository that you haven't pulled down yet. Unlike Git, which would let you create divergent histories, Fossil tries to maintain a linear history by default.
+
+You have three options:
+
+1. **Update first** (recommended): Pull in the latest changes before committing
+   ```bash
+   fossil update
+   fossil commit -m "your message"
+   ```
+
+2. **Create a new branch**: Explicitly make a branch for your changes
+   ```bash
+   fossil commit --branch new-feature-name -m "your message"
+   ```
+
+3. **Allow the fork**: Tell Fossil to proceed anyway
+   ```bash
+   fossil commit --allow-fork -m "your message"
+   ```
+
+This is an intentional design difference between Fossil and Git, aimed at encouraging linear history and reducing merge complexity.
