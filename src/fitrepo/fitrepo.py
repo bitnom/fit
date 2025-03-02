@@ -602,10 +602,36 @@ def fix_git_status(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE
         
         if not git_clone_path.exists() or not target_dir.exists():
             raise ValueError(f"Git clone path or target directory doesn't exist for {norm_path}")
-            
-        # Fix the worktree setup
-        setup_git_worktree(git_clone_path, target_dir, norm_path)
         
+        # Get absolute paths for reliable configuration
+        git_clone_path_abs = os.path.abspath(git_clone_path)
+        target_dir_abs = os.path.abspath(target_dir)
+        git_dir_abs = os.path.join(git_clone_path_abs, '.git')
+        
+        # Create or update the .git file in the target directory
+        git_link_path = os.path.join(target_dir_abs, '.git')
+        with open(git_link_path, 'w') as f:
+            f.write(f"gitdir: {git_dir_abs}")
+        
+        # First, configure the git repo
+        with cd(git_clone_path_abs):
+            # Set the core.worktree to the absolute target directory path
+            run_command(['git', 'config', 'core.worktree', target_dir_abs])
+            run_command(['git', 'config', 'status.showUntrackedFiles', 'no'])
+            
+            # Set up sparse checkout if not already configured
+            sparse_checkout_dir = os.path.join(git_dir_abs, 'info')
+            os.makedirs(sparse_checkout_dir, exist_ok=True)
+            sparse_checkout_file = os.path.join(sparse_checkout_dir, 'sparse-checkout')
+            if not os.path.exists(sparse_checkout_file):
+                run_command(['git', 'config', 'core.sparseCheckout', 'true'])
+                with open(sparse_checkout_file, 'w') as f:
+                    f.write(f"{norm_path}/*\n")
+        
+        # Second, configure the target directory's git settings
+        with cd(target_dir_abs):
+            run_command(['git', 'config', '--local', 'status.showUntrackedFiles', 'no'], check=False)
+            
         logger.info(f"Fixed Git status display for '{norm_path}'. Run 'git status' to verify.")
     except Exception as e:
         logger.error(f"Error fixing Git status: {str(e)}")
