@@ -130,17 +130,18 @@ def test_init_fossil_repo(mock_run, temp_dir):
     # Setup mock to simulate that fossil repo is not open yet
     mock_run.return_value.returncode = 1  # Non-zero returncode means repo not open
     
-    fitrepo.init_fossil_repo(custom_fossil, custom_config)
+    # Mock the file existence check to simulate a new repository
+    with patch('pathlib.Path.exists', return_value=False):
+        fitrepo.init_fossil_repo(custom_fossil, custom_config)
     
-    # Verify expected sequence of calls (init, status check, open)
+    # Verify expected sequence of calls (only init and open because repo doesn't exist)
     expected_calls = [
         call(['fossil', 'init', custom_fossil], check=True, capture_output=False, text=False),
-        call(['fossil', 'status'], check=False, capture_output=False, text=False),
         call(['fossil', 'open', custom_fossil], check=True, capture_output=False, text=False)
     ]
     
-    # Check that the first 3 calls match our expectations
-    assert mock_run.mock_calls[0:3] == expected_calls
+    # Check that the first 2 calls match our expectations
+    assert mock_run.mock_calls[0:2] == expected_calls
     assert os.path.exists(custom_config)
 
 # Test init with fossil arguments - Fix signature to match new parameters
@@ -155,17 +156,18 @@ def test_init_fossil_repo_with_args(mock_run, temp_dir):
     # Setup mock to simulate that fossil repo is not open yet
     mock_run.return_value.returncode = 1  # Non-zero returncode means repo not open
     
-    fitrepo.init_fossil_repo(custom_fossil, custom_config, fossil_open_args, fossil_init_args)
+    # Mock the file existence check to simulate a new repository
+    with patch('pathlib.Path.exists', return_value=False):
+        fitrepo.init_fossil_repo(custom_fossil, custom_config, fossil_open_args, fossil_init_args)
     
     # Verify expected sequence of calls with open args applied only to open command
     expected_calls = [
         call(['fossil', 'init', custom_fossil], check=True, capture_output=False, text=False),
-        call(['fossil', 'status'], check=False, capture_output=False, text=False),
         call(['fossil', 'open', '-f', custom_fossil], check=True, capture_output=False, text=False)
     ]
     
-    # Check that the first 3 calls match our expectations
-    assert mock_run.mock_calls[0:3] == expected_calls
+    # Check that the first 2 calls match our expectations
+    assert mock_run.mock_calls[0:2] == expected_calls
     assert os.path.exists(custom_config)
 
 # Add test for command-specific fossil args
