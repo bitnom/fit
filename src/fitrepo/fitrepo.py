@@ -413,14 +413,16 @@ def setup_git_worktree(git_clone_path, target_dir, norm_path):
         sparse_checkout_dir = os.path.join(git_dir_abs, 'info')
         os.makedirs(sparse_checkout_dir, exist_ok=True)
         
-        # Write the sparse checkout configuration
+        # Write the sparse checkout configuration - explicitly include dotfiles
         with open(os.path.join(sparse_checkout_dir, 'sparse-checkout'), 'w') as f:
-            # Include all files at root of target dir
+            # Include all files at root of target dir, including dotfiles
             f.write("/*\n")
+            f.write("/.*\n")  # Explicitly include dotfiles
             # Exclude other directories at the same level
             f.write("!/*/\n")
             # Also include original path pattern for compatibility
             f.write(f"{norm_path}/*\n")
+            f.write(f"{norm_path}/.*\n")  # Include dotfiles in the target path
         
         # Reset the index to match HEAD
         run_command(['git', 'reset', '--mixed'], check=False)
@@ -437,6 +439,13 @@ def setup_git_worktree(git_clone_path, target_dir, norm_path):
         run_command(['git', 'config', '--local', 'status.showUntrackedFiles', 'no'], check=False)
         # Refresh working tree with a forced checkout
         run_command(['git', 'checkout', '-f', '--', '.'], check=False)
+        
+        # Ensure .gitignore is tracked if it exists
+        gitignore_path = os.path.join(target_dir_abs, '.gitignore')
+        if os.path.exists(gitignore_path):
+            logger.info("Adding .gitignore to Git tracking...")
+            run_command(['git', 'add', '.gitignore'], check=False)
+            run_command(['git', 'commit', '-m', 'Track .gitignore file'], check=False)
 
 def post_worktree_setup(git_clone_path, target_dir):
     """Additional setup to ensure the worktree is properly maintained."""
@@ -492,6 +501,14 @@ def import_git_repo(git_repo_url, subdir_path, fossil_repo=FOSSIL_REPO, config_f
         # Set up Git worktree after Fossil import to properly link the directory
         setup_git_worktree(git_clone_path, target_dir, norm_path)
         post_worktree_setup(git_clone_path, target_dir)
+        
+        # Explicitly handle .gitignore if present
+        gitignore_path = os.path.join(target_dir, '.gitignore')
+        if os.path.exists(gitignore_path):
+            with cd(target_dir):
+                logger.info("Ensuring .gitignore is tracked...")
+                run_command(['git', 'add', '.gitignore'], check=False)
+                run_command(['git', 'commit', '-m', 'Track .gitignore file'], check=False)
         
         # Update configuration
         config['repositories'][norm_path] = {
@@ -763,6 +780,10 @@ def fix_git_status(subdir_path, fossil_repo=FOSSIL_REPO, config_file=CONFIG_FILE
                 '/.git/' in f or 
                 '/__pycache__/' in f
             )]
+            
+            # Add .gitignore explicitly if it exists
+            if os.path.exists('.gitignore') and './.gitignore' not in file_list:
+                file_list.append('./.gitignore')
             
             # Process files in batches to avoid command line length limits
             batch_size = 100
